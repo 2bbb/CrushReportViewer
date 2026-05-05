@@ -2052,16 +2052,21 @@ function generateMarkdown(parsed) {
   const exceptionTypeStr = exceptionTypeKV ? exceptionTypeKV.value : 'Unknown';
   const threadNum = triggeredThreadKV ? triggeredThreadKV.value : (crashedThread ? String(crashedThread.id) : '?');
 
-  let summary = `${exceptionTypeStr}`;
-  if (crashedFunc) summary += ` in \`${crashedFunc}\``;
-  if (faultMdInfo.address) summary += ` at \`${faultMdInfo.address}\``;
-  if (faultMdInfo.analysis) summary += ` (${faultMdInfo.analysis})`;
-  summary += `. Thread ${threadNum} crashed`;
-  if (osVersionKV) summary += ` on ${osVersionKV.value}`;
-  if (hardwareKV) summary += ` (${hardwareKV.value})`;
-  if (uptime) summary += `. ${uptime}`;
-  summary += '.';
-  md += `${summary}\n\n`;
+  md += '## Summary\n\n';
+  md += '| Item | Details |\n|------|---------|\n';
+  md += `| **Signal** | ${exceptionTypeStr} |\n`;
+  if (crashedFunc) md += `| **Crashing Function** | \`${crashedFunc}\` |\n`;
+  if (faultMdInfo.address) md += `| **Faulting Address** | \`${faultMdInfo.address}\` (${faultMdInfo.analysis}) |\n`;
+  md += `| **Thread** | ${threadNum} |\n`;
+  if (crashedThread && crashedThread.frames.length > 0) {
+    const frame0 = crashedThread.frames[0];
+    const ownership0 = classifyFrameOwnership(frame0.image, parsed.binaryImages, effectiveProcessPath);
+    md += `| **Crashed In** | ${frame0.image} (${ownership0.label}) |\n`;
+  }
+  if (osVersionKV) md += `| **OS** | ${osVersionKV.value} |\n`;
+  if (hardwareKV) md += `| **Hardware** | ${hardwareKV.value} |\n`;
+  if (uptime) md += `| **Uptime** | ${uptime} |\n`;
+  md += '\n';
 
   // ── Diagnosis Table ──
   md += '## Diagnosis\n\n';
