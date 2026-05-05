@@ -411,7 +411,7 @@ body {
 
 .frame {
   display: grid;
-  grid-template-columns: 3rem 1fr 11rem 1fr;
+  grid-template-columns: 3rem 1fr 11rem 1fr auto;
   gap: 0.75rem;
   padding: 0.35rem 1rem;
   font-family: var(--font-mono);
@@ -469,6 +469,43 @@ body {
 .frame-offset {
   color: var(--text-muted);
   font-size: 0.72rem;
+}
+
+/* ── Owner Tags ─────────────────────────── */
+.owner-tag {
+  font-size: 0.62rem;
+  font-weight: 700;
+  padding: 0.1rem 0.4rem;
+  border-radius: 3px;
+  white-space: nowrap;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  line-height: 1.4;
+  align-self: center;
+}
+
+.owner-tag.your-app {
+  background: var(--accent-green-dim);
+  color: var(--accent-green);
+  border: 1px solid rgba(63, 185, 80, 0.25);
+}
+
+.owner-tag.system {
+  background: rgba(139, 148, 158, 0.1);
+  color: var(--text-muted);
+  border: 1px solid rgba(139, 148, 158, 0.2);
+}
+
+.owner-tag.apple {
+  background: var(--accent-blue-dim);
+  color: var(--accent-blue);
+  border: 1px solid rgba(88, 166, 255, 0.25);
+}
+
+.owner-tag.third-party {
+  background: var(--accent-amber-dim);
+  color: var(--accent-amber);
+  border: 1px solid rgba(210, 153, 34, 0.25);
 }
 
 /* ── Thread State Table ─────────────────── */
@@ -591,6 +628,87 @@ body {
   font-family: var(--font-mono);
 }
 
+/* ── Diagnosis Panel ────────────────────── */
+.diagnosis-panel {
+  background: var(--bg-secondary);
+  border: 1px solid rgba(210, 153, 34, 0.35);
+  border-left: 3px solid var(--accent-amber);
+  border-radius: var(--radius-md);
+  padding: 1.25rem;
+  margin-bottom: 1.5rem;
+}
+
+.diagnosis-panel-title {
+  font-size: 0.8rem;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.08em;
+  color: var(--accent-amber);
+  margin-bottom: 1rem;
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+}
+
+.diagnosis-row {
+  display: flex;
+  gap: 0.75rem;
+  margin-bottom: 0.5rem;
+  font-size: 0.85rem;
+  line-height: 1.5;
+}
+
+.diagnosis-label {
+  font-weight: 600;
+  color: var(--text-secondary);
+  min-width: 120px;
+  flex-shrink: 0;
+}
+
+.diagnosis-value {
+  color: var(--text-primary);
+}
+
+.diagnosis-value.signal { color: var(--accent-red); font-weight: 600; }
+.diagnosis-value.highlight { color: var(--accent-amber); font-weight: 600; }
+
+/* ── Thread Summary ─────────────────────── */
+.thread-summary {
+  font-size: 0.82rem;
+  color: var(--text-secondary);
+  margin-bottom: 0.75rem;
+  padding: 0.5rem 0;
+  border-bottom: 1px solid var(--border-muted);
+}
+
+.thread-summary .count-crashed { color: var(--accent-red); font-weight: 600; }
+.thread-summary .count-active { color: var(--accent-blue); font-weight: 600; }
+.thread-summary .count-idle { color: var(--text-muted); font-weight: 600; }
+
+.idle-threads-toggle {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.4rem;
+  padding: 0.4rem 0.9rem;
+  font-size: 0.8rem;
+  font-weight: 500;
+  font-family: var(--font-sans);
+  background: var(--bg-tertiary);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  color: var(--text-secondary);
+  cursor: pointer;
+  transition: all var(--transition);
+  margin-top: 0.5rem;
+  margin-bottom: 1rem;
+}
+
+.idle-threads-toggle:hover {
+  background: var(--bg-elevated);
+  color: var(--text-primary);
+  border-color: var(--text-muted);
+}
+
 /* ── Footer ─────────────────────────────── */
 .app-footer {
   margin-top: 3rem;
@@ -611,6 +729,7 @@ body {
     padding: 0.35rem 0.75rem;
   }
   .frame-addr { display: none; }
+  .owner-tag { display: none; }
   .kv-table .kv-key { width: 120px; }
   .app-header { flex-wrap: wrap; }
   .app-subtitle { margin-left: 0; width: 100%; }
@@ -685,13 +804,17 @@ function parseCrashReport(text) {
     const line = lines[i];
     const trimmed = line.trim();
 
-    // Detect section transitions
-    if (/^Exception (Type|Codes|Subtype|Note):/i.test(trimmed) ||
+    // Detect section transitions — exception lines
+    const isExceptionLine = /^Exception (Type|Codes|Subtype|Note):/i.test(trimmed) ||
         /^Termination (Reason|Signal):/i.test(trimmed) ||
-        /^Triggered by Thread:/i.test(trimmed)) {
-      flushSection(section, result, currentSectionLines, currentThread);
-      section = 'exception';
-      currentSectionLines = [];
+        /^Triggered by Thread:/i.test(trimmed);
+    if (isExceptionLine) {
+      if (section !== 'exception') {
+        // First exception line: flush previous section, start exception
+        flushSection(section, result, currentSectionLines, currentThread);
+        section = 'exception';
+        currentSectionLines = [];
+      }
       currentSectionLines.push(trimmed);
       i++;
       continue;
@@ -911,27 +1034,163 @@ function parseBinaryImages(lines) {
   return images;
 }
 
+// ── Analysis Functions ──────────────────────
+
+function explainSignal(exceptionType) {
+  if (!exceptionType) return '';
+  const signals = {
+    'SIGSEGV': 'Invalid memory access (NULL pointer dereference or accessing freed memory)',
+    'SIGABRT': 'Process intentionally aborted (assertion failure, unhandled exception, or abort() called)',
+    'SIGBUS': 'Bus error (misaligned access or non-existent memory)',
+    'SIGKILL': 'Forcefully killed by the system (memory pressure, watchdog, etc.)',
+    'SIGTERM': 'Termination signal received (normal shutdown request)',
+    'SIGILL': 'Illegal instruction executed',
+    'EXC_BREAKPOINT': 'Debug breakpoint / intentional trap (e.g., Swift precondition failure, __builtin_trap())',
+    'EXC_ARITHMETIC': 'Arithmetic exception (division by zero, etc.)'
+  };
+  for (const [sig, desc] of Object.entries(signals)) {
+    if (exceptionType.includes(sig)) return desc;
+  }
+  return exceptionType;
+}
+
+function analyzeFaultingAddress(subtype, binaryImages) {
+  if (!subtype) return { address: null, analysis: '' };
+  const addrMatch = subtype.match(/0x[0-9a-fA-F]+/);
+  if (!addrMatch) return { address: null, analysis: '' };
+  const addr = addrMatch[0];
+  const addrNum = parseInt(addr, 16);
+
+  if (addrNum === 0 || addrNum < 0x1000) {
+    return { address: addr, analysis: 'NULL pointer dereference' };
+  }
+
+  for (const img of binaryImages) {
+    const start = parseInt(img.start, 16);
+    const end = parseInt(img.end, 16);
+    if (addrNum >= start && addrNum <= end) {
+      return { address: addr, analysis: `Within ${img.identifier} (${img.start} - ${img.end})`, image: img.identifier };
+    }
+  }
+
+  return { address: addr, analysis: 'Outside all loaded image ranges (possible dangling pointer / use-after-free)' };
+}
+
+function classifyFrameOwnership(imageName, binaryImages, processPath) {
+  const bi = binaryImages.find(img => img.identifier === imageName);
+  const path = bi ? bi.path : '';
+  const ident = bi ? bi.identifier : '';
+
+  if (processPath && path) {
+    const lastSlash = processPath.lastIndexOf('/');
+    if (lastSlash > 0) {
+      const parent = processPath.substring(0, lastSlash);
+      if (path.startsWith(parent)) {
+        return { owner: 'YOUR_APP', label: 'YOUR APP' };
+      }
+    }
+  }
+
+  if (path.includes('/System/Library/')) {
+    return { owner: 'SYSTEM', label: 'SYSTEM' };
+  }
+
+  if (ident.includes('com.apple.') || path.includes('com.apple.')) {
+    return { owner: 'APPLE', label: 'APPLE' };
+  }
+
+  if (path.includes('/usr/lib/')) {
+    return { owner: 'SYSTEM', label: 'SYSTEM' };
+  }
+
+  return { owner: 'THIRD_PARTY', label: '3RD PARTY' };
+}
+
+function calculateUptime(launchTime, crashTime) {
+  if (!launchTime || !crashTime) return null;
+  const launch = new Date(launchTime);
+  const crash = new Date(crashTime);
+  if (isNaN(launch.getTime()) || isNaN(crash.getTime())) return null;
+
+  const diffMs = crash.getTime() - launch.getTime();
+  if (diffMs < 0) return null;
+
+  const totalSeconds = Math.floor(diffMs / 1000);
+
+  if (totalSeconds < 60) {
+    return `Process crashed immediately (${totalSeconds} seconds after launch)`;
+  }
+
+  const totalMinutes = Math.floor(totalSeconds / 60);
+  if (totalMinutes < 5) {
+    const secs = totalSeconds % 60;
+    return `Process crashed during startup (${totalMinutes} minute${totalMinutes > 1 ? 's' : ''} ${secs}s after launch)`;
+  }
+
+  const hours = Math.floor(totalMinutes / 60);
+  const mins = totalMinutes % 60;
+
+  if (hours === 0) {
+    return `${mins} minute${mins > 1 ? 's' : ''} before crash`;
+  }
+
+  return `${hours} hour${hours > 1 ? 's' : ''} ${mins} minute${mins > 1 ? 's' : ''} before crash`;
+}
+
+function classifyThread(thread, appImageName) {
+  if (thread.crashed) return 'crashed';
+  if (!appImageName) return 'idle';
+  for (const frame of thread.frames) {
+    if (frame.image === appImageName) return 'active';
+  }
+  return 'idle';
+}
+
 // ── Renderers ──────────────────────────────
 
 function renderReport(parsed) {
   const out = document.getElementById('reportOutput');
   out.innerHTML = '';
 
-  // Summary bar
   const processKV = parsed.header.find(kv => kv.key === 'Process');
-  const exceptionType = parsed.exception.find(kv => kv.key === 'Exception Type');
+  const processName = processKV ? processKV.value : 'Unknown';
+  const exceptionTypeKV = parsed.exception.find(kv => kv.key === 'Exception Type');
   const triggeredThread = parsed.exception.find(kv => kv.key === 'Triggered by Thread');
   const crashedThread = parsed.threads.find(t => t.crashed);
 
-  if (processKV || exceptionType) {
+  // Resolve process path and app image name
+  const processPathKV = parsed.header.find(kv => kv.key === 'Path');
+  const processPath = processPathKV ? processPathKV.value : '';
+  const processNameClean = processName.replace(/\s*\[.*\]/, '').trim();
+  const appImage = parsed.binaryImages.find(img => {
+    const parts = img.path.split('/');
+    return parts[parts.length - 1] === processNameClean || img.identifier === processNameClean;
+  });
+  const appImageName = appImage ? appImage.identifier : processNameClean;
+  const effectiveProcessPath = processPath || (appImage ? appImage.path : '');
+
+  // ── Summary bar (with uptime) ──
+  if (processKV || exceptionTypeKV) {
     const bar = document.createElement('div');
     bar.className = 'summary-bar';
     if (processKV) bar.innerHTML += `<span class="summary-chip"><span class="summary-chip-label">Process:</span> <span class="summary-chip-value">${esc(processKV.value)}</span></span>`;
-    if (exceptionType) bar.innerHTML += `<span class="summary-chip"><span class="summary-chip-label">Exception:</span> <span class="summary-chip-value" style="color:var(--accent-red)">${esc(exceptionType.value)}</span></span>`;
+    if (exceptionTypeKV) bar.innerHTML += `<span class="summary-chip"><span class="summary-chip-label">Exception:</span> <span class="summary-chip-value" style="color:var(--accent-red)">${esc(exceptionTypeKV.value)}</span></span>`;
     if (triggeredThread) bar.innerHTML += `<span class="summary-chip"><span class="summary-chip-label">Thread:</span> <span class="summary-chip-value">${esc(triggeredThread.value)}</span></span>`;
     if (crashedThread) bar.innerHTML += `<span class="summary-chip"><span class="summary-chip-label">Frames:</span> <span class="summary-chip-value">${crashedThread.frames.length}</span></span>`;
+
+    const launchTimeKV = parsed.header.find(kv => kv.key === 'Launch Time');
+    const crashTimeKV = parsed.header.find(kv => kv.key === 'Date/Time');
+    const uptime = calculateUptime(launchTimeKV ? launchTimeKV.value : null, crashTimeKV ? crashTimeKV.value : null);
+    if (uptime) {
+      bar.innerHTML += `<span class="summary-chip"><span class="summary-chip-label">Uptime:</span> <span class="summary-chip-value">${esc(uptime)}</span></span>`;
+    }
+
     out.appendChild(bar);
   }
+
+  // ── Diagnosis Panel ──
+  const diagnosisPanel = renderDiagnosisPanel(parsed, crashedThread, effectiveProcessPath);
+  if (diagnosisPanel) out.appendChild(diagnosisPanel);
 
   // Header
   if (parsed.header.length) {
@@ -948,15 +1207,57 @@ function renderReport(parsed) {
     out.appendChild(renderRawSection('VM Region Info', parsed.vmRegionInfo));
   }
 
-  // Crashed Thread (prominent)
-  if (crashedThread) {
-    out.appendChild(renderThreadSection(crashedThread, true));
+  // ── Threads with grouping ──
+  const crashedThreads = [];
+  const activeThreads = [];
+  const idleThreads = [];
+
+  for (const thread of parsed.threads) {
+    const cls = classifyThread(thread, appImageName);
+    if (cls === 'crashed') crashedThreads.push(thread);
+    else if (cls === 'active') activeThreads.push(thread);
+    else idleThreads.push(thread);
   }
 
-  // All other threads
-  for (const thread of parsed.threads) {
-    if (thread.crashed) continue;
-    out.appendChild(renderThreadSection(thread, false));
+  // Thread summary
+  if (parsed.threads.length > 1) {
+    const summary = document.createElement('div');
+    summary.className = 'thread-summary';
+    summary.innerHTML = `Threads: <span class="count-crashed">${crashedThreads.length} crashed</span> &middot; <span class="count-active">${activeThreads.length} active</span> &middot; <span class="count-idle">${idleThreads.length} idle</span>`;
+    out.appendChild(summary);
+  }
+
+  // Crashed thread (always expanded, with owner tags)
+  for (const thread of crashedThreads) {
+    out.appendChild(renderThreadSection(thread, true, true, parsed.binaryImages, effectiveProcessPath));
+  }
+
+  // Active threads (collapsed, no owner tags)
+  for (const thread of activeThreads) {
+    out.appendChild(renderThreadSection(thread, false, false, parsed.binaryImages, effectiveProcessPath));
+  }
+
+  // Idle threads (hidden behind toggle)
+  if (idleThreads.length > 0) {
+    const idleContainer = document.createElement('div');
+    idleContainer.className = 'idle-threads-container';
+    idleContainer.style.display = 'none';
+
+    for (const thread of idleThreads) {
+      idleContainer.appendChild(renderThreadSection(thread, false, false, parsed.binaryImages, effectiveProcessPath));
+    }
+
+    out.appendChild(idleContainer);
+
+    const toggleBtn = document.createElement('button');
+    toggleBtn.className = 'idle-threads-toggle';
+    toggleBtn.textContent = `Show ${idleThreads.length} idle threads`;
+    toggleBtn.onclick = () => {
+      const visible = idleContainer.style.display !== 'none';
+      idleContainer.style.display = visible ? 'none' : 'block';
+      toggleBtn.textContent = visible ? `Show ${idleThreads.length} idle threads` : `Hide ${idleThreads.length} idle threads`;
+    };
+    out.appendChild(toggleBtn);
   }
 
   // Thread State
@@ -987,6 +1288,56 @@ function renderReport(parsed) {
   document.getElementById('downloadBtn').classList.remove('hidden');
 }
 
+function renderDiagnosisPanel(parsed, crashedThread, processPath) {
+  const exceptionTypeKV = parsed.exception.find(kv => kv.key === 'Exception Type');
+  const exceptionSubtypeKV = parsed.exception.find(kv => kv.key === 'Exception Subtype');
+
+  if (!exceptionTypeKV && !crashedThread) return null;
+
+  const panel = document.createElement('div');
+  panel.className = 'diagnosis-panel section';
+
+  let html = '<div class="diagnosis-panel-title">\u{1f50d} Crash Diagnosis</div>';
+
+  // Signal explanation
+  if (exceptionTypeKV) {
+    const signalExpl = explainSignal(exceptionTypeKV.value);
+    html += `<div class="diagnosis-row"><span class="diagnosis-label">Signal:</span><span class="diagnosis-value signal">${esc(exceptionTypeKV.value)}</span></div>`;
+    if (signalExpl && signalExpl !== exceptionTypeKV.value) {
+      html += `<div class="diagnosis-row"><span class="diagnosis-label"></span><span class="diagnosis-value">${esc(signalExpl)}</span></div>`;
+    }
+  }
+
+  // Faulting address analysis
+  if (exceptionSubtypeKV) {
+    const fa = analyzeFaultingAddress(exceptionSubtypeKV.value, parsed.binaryImages);
+    if (fa.address) {
+      html += `<div class="diagnosis-row"><span class="diagnosis-label">Faulting Addr:</span><span class="diagnosis-value highlight">${esc(fa.address)}</span></div>`;
+      html += `<div class="diagnosis-row"><span class="diagnosis-label"></span><span class="diagnosis-value">${esc(fa.analysis)}</span></div>`;
+    }
+  }
+
+  // Frame ownership for crashed thread
+  if (crashedThread && crashedThread.frames.length > 0) {
+    const frame0 = crashedThread.frames[0];
+    const ownership0 = classifyFrameOwnership(frame0.image, parsed.binaryImages, processPath);
+    html += `<div class="diagnosis-row"><span class="diagnosis-label">Crashed in:</span><span class="diagnosis-value"><strong>${esc(frame0.image)}</strong> &mdash; ${esc(ownership0.label)} (frame 0)</span></div>`;
+
+    for (const frame of crashedThread.frames) {
+      const ownership = classifyFrameOwnership(frame.image, parsed.binaryImages, processPath);
+      if (ownership.owner === 'YOUR_APP') {
+        const sym = frame.symbol === '???' ? frame.image : frame.symbol;
+        html += `<div class="diagnosis-row"><span class="diagnosis-label">Last user code:</span><span class="diagnosis-value highlight">${esc(sym)}</span></div>`;
+        html += `<div class="diagnosis-row"><span class="diagnosis-label"></span><span class="diagnosis-value">at frame ${frame.idx} in ${esc(frame.image)}</span></div>`;
+        break;
+      }
+    }
+  }
+
+  panel.innerHTML = html;
+  return panel;
+}
+
 function renderKVSection(title, kvs, tableClass) {
   const section = document.createElement('div');
   section.className = 'section';
@@ -1002,7 +1353,7 @@ function renderKVSection(title, kvs, tableClass) {
   return section;
 }
 
-function renderThreadSection(thread, isCrashed) {
+function renderThreadSection(thread, isCrashed, showOwnerTags, binaryImages, processPath) {
   const section = document.createElement('div');
   section.className = `thread-section${isCrashed ? ' crashed open' : ''}`;
 
@@ -1028,7 +1379,14 @@ function renderThreadSection(thread, isCrashed) {
       li.className = `frame${isCrashing ? ' crashing' : ''}`;
       const symHTML = frame.symbol === '???' ? '<span style="color:var(--text-muted)">???</span>' : esc(frame.symbol);
       const offHTML = frame.offset ? ` <span class="frame-offset">+ ${esc(frame.offset)}</span>` : '';
-      li.innerHTML = `<span class="frame-idx">${frame.idx}</span><span class="frame-image" title="${esc(frame.image)}">${esc(frame.image)}</span><span class="frame-addr">${esc(frame.addr)}</span><span class="frame-symbol">${symHTML}${offHTML}</span>`;
+
+      let tagHTML = '';
+      if (showOwnerTags && binaryImages) {
+        const ownership = classifyFrameOwnership(frame.image, binaryImages, processPath);
+        tagHTML = `<span class="owner-tag ${ownership.owner.toLowerCase().replace('_', '-')}">${esc(ownership.label)}</span>`;
+      }
+
+      li.innerHTML = `<span class="frame-idx">${frame.idx}</span><span class="frame-image" title="${esc(frame.image)}">${esc(frame.image)}</span><span class="frame-addr">${esc(frame.addr)}</span><span class="frame-symbol">${symHTML}${offHTML}</span>${tagHTML}`;
       ul.appendChild(li);
     }
     body.appendChild(ul);
@@ -1095,22 +1453,139 @@ function generateMarkdown(parsed) {
 
   const processKV = parsed.header.find(kv => kv.key === 'Process');
   const processName = processKV ? processKV.value : 'Unknown';
-  const pidMatch = processName.match(/\[(\d+)\]/);
-  const pid = pidMatch ? pidMatch[1] : '?';
 
-  md += `# Crash Report: ${processName}\n\n`;
+  const exceptionTypeKV = parsed.exception.find(kv => kv.key === 'Exception Type');
+  const exceptionSubtypeKV = parsed.exception.find(kv => kv.key === 'Exception Subtype');
+  const crashedThread = parsed.threads.find(t => t.crashed);
 
-  // Overview
-  md += '## Overview\n\n';
-  md += '| Field | Value |\n|-------|-------|\n';
-  for (const kv of parsed.header) {
-    md += `| **${kv.key}** | ${kv.value} |\n`;
+  // Resolve process path and app image
+  const processPathKV = parsed.header.find(kv => kv.key === 'Path');
+  const processPath = processPathKV ? processPathKV.value : '';
+  const processNameClean = processName.replace(/\s*\[.*\]/, '').trim();
+  const appImage = parsed.binaryImages.find(img => {
+    const parts = img.path.split('/');
+    return parts[parts.length - 1] === processNameClean || img.identifier === processNameClean;
+  });
+  const appImageName = appImage ? appImage.identifier : processNameClean;
+  const effectiveProcessPath = processPath || (appImage ? appImage.path : '');
+
+  // Uptime
+  const launchTimeKV = parsed.header.find(kv => kv.key === 'Launch Time');
+  const crashTimeKV = parsed.header.find(kv => kv.key === 'Date/Time');
+  const uptime = calculateUptime(launchTimeKV ? launchTimeKV.value : null, crashTimeKV ? crashTimeKV.value : null);
+
+  const osVersionKV = parsed.header.find(kv => kv.key === 'OS Version');
+  const hardwareKV = parsed.header.find(kv => kv.key === 'Hardware Model');
+
+  md += `# Crash Report Analysis: ${processName}\n\n`;
+
+  // ── Diagnosis ──
+  md += '## Diagnosis\n\n';
+
+  if (exceptionTypeKV) {
+    const signalExpl = explainSignal(exceptionTypeKV.value);
+    md += `**Signal**: ${exceptionTypeKV.value}`;
+    if (signalExpl && signalExpl !== exceptionTypeKV.value) {
+      md += ` \u2014 ${signalExpl}`;
+    }
+    md += '\n';
   }
+
+  if (exceptionSubtypeKV) {
+    const fa = analyzeFaultingAddress(exceptionSubtypeKV.value, parsed.binaryImages);
+    if (fa.address) {
+      md += `**Faulting Address**: ${fa.address} \u2014 ${fa.analysis}\n`;
+    }
+  }
+
+  if (crashedThread && crashedThread.frames.length > 0) {
+    const frame0 = crashedThread.frames[0];
+    const ownership0 = classifyFrameOwnership(frame0.image, parsed.binaryImages, effectiveProcessPath);
+    md += `**Crashed In**: ${frame0.image} (${ownership0.label}) at frame 0\n`;
+
+    for (const frame of crashedThread.frames) {
+      const ownership = classifyFrameOwnership(frame.image, parsed.binaryImages, effectiveProcessPath);
+      if (ownership.owner === 'YOUR_APP') {
+        const sym = frame.symbol === '???' ? frame.image : frame.symbol;
+        md += `**Last user code**: ${sym} at frame ${frame.idx} in ${frame.image}\n`;
+        break;
+      }
+    }
+  }
+
+  if (osVersionKV) md += `**OS**: ${osVersionKV.value}\n`;
+  if (hardwareKV) md += `**Hardware**: ${hardwareKV.value}\n`;
+  if (uptime) md += `**Uptime**: ${uptime}\n`;
   md += '\n';
 
-  // Exception
+  // ── Root Cause Trace ──
+  if (crashedThread && crashedThread.frames.length > 0) {
+    md += '## Root Cause Trace\n\n';
+
+    const frame0 = crashedThread.frames[0];
+    const ownership0 = classifyFrameOwnership(frame0.image, parsed.binaryImages, effectiveProcessPath);
+
+    let userFrame = null;
+    for (const frame of crashedThread.frames) {
+      const ownership = classifyFrameOwnership(frame.image, parsed.binaryImages, effectiveProcessPath);
+      if (ownership.owner === 'YOUR_APP') { userFrame = frame; break; }
+    }
+
+    if (ownership0.owner !== 'YOUR_APP' && userFrame) {
+      md += `The crash occurred in ${ownership0.label.toLowerCase()} code (${frame0.image}). The first user code in the call stack:\n\n`;
+    } else if (ownership0.owner === 'YOUR_APP') {
+      md += 'The crash occurred directly in application code.\n\n';
+    } else {
+      md += `The crash occurred in ${ownership0.label.toLowerCase()} code. No application frames found in the call stack.\n\n`;
+    }
+
+    md += '| # | Owner | Image | Symbol |\n|---|-------|-------|--------|\n';
+    for (const frame of crashedThread.frames) {
+      const sym = frame.symbol === '???' ? '???' : frame.symbol;
+      const off = frame.offset ? ` + ${frame.offset}` : '';
+      const ownership = classifyFrameOwnership(frame.image, parsed.binaryImages, effectiveProcessPath);
+      md += `| ${frame.idx} | ${ownership.label} | ${frame.image} | ${sym}${off} |\n`;
+    }
+    md += '\n';
+
+    if (userFrame) {
+      md += '**Analysis**: ';
+      if (ownership0.owner !== 'YOUR_APP') {
+        md += `The crash originated in \`${userFrame.symbol}\` which called into ${frame0.image}.`;
+        if (exceptionSubtypeKV) {
+          const fa = analyzeFaultingAddress(exceptionSubtypeKV.value, parsed.binaryImages);
+          if (fa.address && fa.analysis.includes('NULL')) {
+            md += ' A NULL or invalid pointer was likely passed to the system call.';
+          } else if (fa.address && (fa.analysis.includes('dangling') || fa.analysis.includes('Outside'))) {
+            md += ' The invalid address suggests a corrupted or freed buffer was passed to the system operation.';
+          }
+        }
+      } else {
+        md += `The crash occurred in \`${frame0.symbol}\` in application code.`;
+      }
+      md += '\n\n';
+    }
+  }
+
+  // ── Thread summary ──
+  const crashedThreads = [];
+  const activeThreads = [];
+  const idleThreads = [];
+  for (const thread of parsed.threads) {
+    const cls = classifyThread(thread, appImageName);
+    if (cls === 'crashed') crashedThreads.push(thread);
+    else if (cls === 'active') activeThreads.push(thread);
+    else idleThreads.push(thread);
+  }
+
+  if (parsed.threads.length > 1) {
+    md += '## Threads\n\n';
+    md += `${crashedThreads.length} crashed \u00b7 ${activeThreads.length} active \u00b7 ${idleThreads.length} idle\n\n`;
+  }
+
+  // ── Exception Details ──
   if (parsed.exception.length) {
-    md += '## Exception\n\n';
+    md += '## Exception Details\n\n';
     md += '| Field | Value |\n|-------|-------|\n';
     for (const kv of parsed.exception) {
       md += `| **${kv.key}** | ${kv.value} |\n`;
@@ -1118,8 +1593,15 @@ function generateMarkdown(parsed) {
     md += '\n';
   }
 
-  // Crashed Thread
-  const crashedThread = parsed.threads.find(t => t.crashed);
+  // ── Process Information ──
+  md += '## Process Information\n\n';
+  md += '| Field | Value |\n|-------|-------|\n';
+  for (const kv of parsed.header) {
+    md += `| **${kv.key}** | ${kv.value} |\n`;
+  }
+  md += '\n';
+
+  // ── Crashed Thread ──
   if (crashedThread) {
     const name = crashedThread.name ? `: ${crashedThread.name}` : '';
     md += `## Crashed Thread (Thread ${crashedThread.id}${name})\n\n`;
@@ -1132,11 +1614,10 @@ function generateMarkdown(parsed) {
     md += '```\n\n';
   }
 
-  // All Threads
-  if (parsed.threads.length > 1) {
-    md += '## All Threads\n\n';
-    for (const thread of parsed.threads) {
-      if (thread.crashed) continue;
+  // ── Active Threads ──
+  if (activeThreads.length > 0) {
+    md += '## Active Threads\n\n';
+    for (const thread of activeThreads) {
       const name = thread.name ? `: ${thread.name}` : '';
       md += `### Thread ${thread.id}${name}\n\n`;
       if (thread.frames.length === 0) {
@@ -1153,7 +1634,7 @@ function generateMarkdown(parsed) {
     }
   }
 
-  // Thread State
+  // ── Thread State ──
   const stateTarget = crashedThread;
   if (stateTarget && stateTarget.state && stateTarget.state.length) {
     const name = stateTarget.name ? `: ${stateTarget.name}` : '';
@@ -1172,7 +1653,7 @@ function generateMarkdown(parsed) {
     md += '\n';
   }
 
-  // Binary Images
+  // ── Binary Images ──
   if (parsed.binaryImages.length) {
     md += '## Binary Images\n\n';
     md += '| Address Range | Identifier | Version | Path |\n|--------------|------------|---------|------|\n';
@@ -1182,19 +1663,19 @@ function generateMarkdown(parsed) {
     md += '\n';
   }
 
-  // VM Region Info
+  // ── VM Region Info ──
   if (parsed.vmRegionInfo) {
     md += '## VM Region Info\n\n';
     md += '```\n' + parsed.vmRegionInfo + '\n```\n\n';
   }
 
-  // External Modification Summary
+  // ── External Modification Summary ──
   if (parsed.externalModSummary) {
     md += '## External Modification Summary\n\n';
     md += '```\n' + parsed.externalModSummary + '\n```\n\n';
   }
 
-  // VM Region Summary
+  // ── VM Region Summary ──
   if (parsed.vmRegionSummary) {
     md += '## VM Region Summary\n\n';
     md += '```\n' + parsed.vmRegionSummary + '\n```\n\n';

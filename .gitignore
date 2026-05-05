@@ -1,2 +1,5 @@
 node_modules/
 .playwright-mcp/
+sample_data/
+crv_*.png
+
