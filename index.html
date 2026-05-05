@@ -1,0 +1,1279 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Crush Report Viewer</title>
+<style>
+:root {
+  --bg-primary: #0d1117;
+  --bg-secondary: #161b22;
+  --bg-tertiary: #1c2128;
+  --bg-elevated: #21262d;
+  --border: #30363d;
+  --border-muted: #21262d;
+  --text-primary: #e6edf3;
+  --text-secondary: #8b949e;
+  --text-muted: #6e7681;
+  --accent-red: #f85149;
+  --accent-red-dim: rgba(248, 81, 73, 0.15);
+  --accent-amber: #d29922;
+  --accent-amber-dim: rgba(210, 153, 34, 0.12);
+  --accent-blue: #58a6ff;
+  --accent-blue-dim: rgba(88, 166, 255, 0.12);
+  --accent-green: #3fb950;
+  --accent-green-dim: rgba(63, 185, 80, 0.12);
+  --accent-purple: #bc8cff;
+  --accent-purple-dim: rgba(188, 140, 255, 0.12);
+  --accent-cyan: #39d2c0;
+  --accent-orange: #f0883e;
+  --radius-sm: 6px;
+  --radius-md: 8px;
+  --radius-lg: 12px;
+  --font-sans: -apple-system, BlinkMacSystemFont, 'Segoe UI', 'Noto Sans', Helvetica, Arial, sans-serif;
+  --font-mono: 'JetBrains Mono', 'SF Mono', 'Fira Code', 'Cascadia Code', 'Consolas', monospace;
+  --shadow-sm: 0 1px 2px rgba(0,0,0,0.3);
+  --shadow-md: 0 2px 8px rgba(0,0,0,0.4);
+  --shadow-lg: 0 4px 16px rgba(0,0,0,0.5);
+  --transition: 150ms cubic-bezier(0.4, 0, 0.2, 1);
+}
+
+*, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+
+html { font-size: 15px; -webkit-font-smoothing: antialiased; }
+
+body {
+  font-family: var(--font-sans);
+  background: var(--bg-primary);
+  color: var(--text-primary);
+  line-height: 1.6;
+  min-height: 100vh;
+}
+
+/* ── Layout ─────────────────────────────── */
+.app {
+  max-width: 1100px;
+  margin: 0 auto;
+  padding: 2rem 1.5rem 4rem;
+}
+
+/* ── Header ─────────────────────────────── */
+.app-header {
+  display: flex;
+  align-items: center;
+  gap: 0.75rem;
+  margin-bottom: 2rem;
+  padding-bottom: 1.5rem;
+  border-bottom: 1px solid var(--border);
+}
+
+.app-logo {
+  width: 36px;
+  height: 36px;
+  background: var(--accent-red);
+  border-radius: var(--radius-sm);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 1.2rem;
+  flex-shrink: 0;
+  box-shadow: 0 0 12px rgba(248, 81, 73, 0.3);
+}
+
+.app-title {
+  font-size: 1.35rem;
+  font-weight: 700;
+  letter-spacing: -0.02em;
+  color: var(--text-primary);
+}
+
+.app-subtitle {
+  font-size: 0.82rem;
+  color: var(--text-muted);
+  margin-left: auto;
+  font-family: var(--font-mono);
+}
+
+/* ── Input Section ──────────────────────── */
+.input-section {
+  margin-bottom: 2rem;
+}
+
+.input-section label {
+  display: block;
+  font-size: 0.85rem;
+  font-weight: 600;
+  color: var(--text-secondary);
+  margin-bottom: 0.5rem;
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+}
+
+#crashInput {
+  width: 100%;
+  min-height: 200px;
+  max-height: 50vh;
+  padding: 1rem;
+  background: var(--bg-secondary);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-md);
+  color: var(--text-primary);
+  font-family: var(--font-mono);
+  font-size: 0.82rem;
+  line-height: 1.7;
+  resize: vertical;
+  transition: border-color var(--transition), box-shadow var(--transition);
+}
+
+#crashInput:focus {
+  outline: none;
+  border-color: var(--accent-blue);
+  box-shadow: 0 0 0 3px rgba(88, 166, 255, 0.15);
+}
+
+#crashInput::placeholder {
+  color: var(--text-muted);
+}
+
+.actions {
+  display: flex;
+  gap: 0.75rem;
+  margin-top: 1rem;
+  flex-wrap: wrap;
+}
+
+.btn {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.5rem;
+  padding: 0.6rem 1.25rem;
+  font-size: 0.85rem;
+  font-weight: 600;
+  font-family: var(--font-sans);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  cursor: pointer;
+  transition: all var(--transition);
+  white-space: nowrap;
+}
+
+.btn-primary {
+  background: var(--accent-blue);
+  border-color: var(--accent-blue);
+  color: #fff;
+}
+
+.btn-primary:hover {
+  background: #79b8ff;
+  border-color: #79b8ff;
+}
+
+.btn-secondary {
+  background: var(--bg-tertiary);
+  color: var(--text-primary);
+}
+
+.btn-secondary:hover {
+  background: var(--bg-elevated);
+  border-color: var(--text-muted);
+}
+
+.btn-success {
+  background: var(--accent-green);
+  border-color: var(--accent-green);
+  color: #fff;
+}
+
+.btn-success:hover {
+  background: #56d364;
+  border-color: #56d364;
+}
+
+.btn svg {
+  width: 16px;
+  height: 16px;
+  flex-shrink: 0;
+}
+
+.hidden { display: none !important; }
+
+/* ── Error / Empty State ────────────────── */
+.message-box {
+  padding: 1rem 1.25rem;
+  border-radius: var(--radius-md);
+  font-size: 0.85rem;
+  margin-bottom: 1.5rem;
+  display: flex;
+  align-items: flex-start;
+  gap: 0.6rem;
+}
+
+.message-error {
+  background: var(--accent-red-dim);
+  border: 1px solid rgba(248, 81, 73, 0.3);
+  color: var(--accent-red);
+}
+
+.message-info {
+  background: var(--accent-blue-dim);
+  border: 1px solid rgba(88, 166, 255, 0.3);
+  color: var(--accent-blue);
+}
+
+/* ── Report Output ──────────────────────── */
+#reportOutput { display: none; }
+
+#reportOutput.visible { display: block; }
+
+.section {
+  margin-bottom: 1.5rem;
+  animation: fadeIn 0.3s ease;
+}
+
+@keyframes fadeIn {
+  from { opacity: 0; transform: translateY(8px); }
+  to { opacity: 1; transform: translateY(0); }
+}
+
+.section-title {
+  font-size: 0.8rem;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.08em;
+  color: var(--text-muted);
+  margin-bottom: 0.75rem;
+  padding-bottom: 0.4rem;
+  border-bottom: 1px solid var(--border-muted);
+}
+
+/* ── KV Table (Header / Exception) ──────── */
+.kv-table {
+  width: 100%;
+  border-collapse: collapse;
+  background: var(--bg-secondary);
+  border-radius: var(--radius-md);
+  overflow: hidden;
+  border: 1px solid var(--border);
+}
+
+.kv-table tr:not(:last-child) td {
+  border-bottom: 1px solid var(--border-muted);
+}
+
+.kv-table td {
+  padding: 0.5rem 1rem;
+  vertical-align: top;
+}
+
+.kv-table .kv-key {
+  width: 180px;
+  font-weight: 600;
+  font-size: 0.82rem;
+  color: var(--text-secondary);
+  white-space: nowrap;
+  background: var(--bg-tertiary);
+}
+
+.kv-table .kv-val {
+  font-family: var(--font-mono);
+  font-size: 0.82rem;
+  color: var(--text-primary);
+  word-break: break-all;
+}
+
+/* ── Exception Box ──────────────────────── */
+.exception-box {
+  background: var(--accent-red-dim);
+  border: 1px solid rgba(248, 81, 73, 0.25);
+  border-radius: var(--radius-md);
+  overflow: hidden;
+}
+
+.exception-box .kv-table {
+  background: transparent;
+  border: none;
+}
+
+.exception-box .kv-table tr:not(:last-child) td {
+  border-bottom-color: rgba(248, 81, 73, 0.1);
+}
+
+.exception-box .kv-table .kv-key {
+  background: rgba(248, 81, 73, 0.08);
+  color: var(--accent-red);
+}
+
+.exception-box .kv-table .kv-val {
+  color: #ffa198;
+}
+
+/* ── Thread Sections ────────────────────── */
+.thread-section {
+  border: 1px solid var(--border);
+  border-radius: var(--radius-md);
+  overflow: hidden;
+  margin-bottom: 0.5rem;
+  transition: border-color var(--transition);
+}
+
+.thread-section.crashed {
+  border-color: rgba(248, 81, 73, 0.4);
+  box-shadow: 0 0 16px rgba(248, 81, 73, 0.08);
+}
+
+.thread-header {
+  display: flex;
+  align-items: center;
+  gap: 0.75rem;
+  padding: 0.65rem 1rem;
+  cursor: pointer;
+  user-select: none;
+  transition: background var(--transition);
+  background: var(--bg-secondary);
+}
+
+.thread-header:hover {
+  background: var(--bg-tertiary);
+}
+
+.thread-section.crashed .thread-header {
+  background: var(--accent-red-dim);
+}
+
+.thread-chevron {
+  width: 16px;
+  height: 16px;
+  transition: transform var(--transition);
+  color: var(--text-muted);
+  flex-shrink: 0;
+}
+
+.thread-section.open .thread-chevron {
+  transform: rotate(90deg);
+}
+
+.thread-name {
+  font-weight: 600;
+  font-size: 0.85rem;
+  flex: 1;
+}
+
+.thread-section.crashed .thread-name {
+  color: var(--accent-red);
+}
+
+.thread-badge {
+  font-size: 0.72rem;
+  font-weight: 600;
+  padding: 0.15rem 0.55rem;
+  border-radius: 999px;
+  font-family: var(--font-mono);
+}
+
+.badge-crashed {
+  background: var(--accent-red);
+  color: #fff;
+}
+
+.badge-frames {
+  background: var(--bg-elevated);
+  color: var(--text-muted);
+  border: 1px solid var(--border);
+}
+
+.thread-section.crashed .badge-frames {
+  background: rgba(248, 81, 73, 0.2);
+  color: var(--accent-red);
+  border-color: rgba(248, 81, 73, 0.3);
+}
+
+.thread-body {
+  display: none;
+  padding: 0;
+  background: var(--bg-primary);
+}
+
+.thread-section.open .thread-body {
+  display: block;
+}
+
+.thread-empty {
+  padding: 0.75rem 1rem;
+  font-size: 0.82rem;
+  color: var(--text-muted);
+  font-style: italic;
+}
+
+/* ── Stack Frames ───────────────────────── */
+.frame-list {
+  list-style: none;
+}
+
+.frame {
+  display: grid;
+  grid-template-columns: 3rem 1fr 11rem 1fr;
+  gap: 0.75rem;
+  padding: 0.35rem 1rem;
+  font-family: var(--font-mono);
+  font-size: 0.78rem;
+  line-height: 1.6;
+  border-bottom: 1px solid var(--border-muted);
+  align-items: baseline;
+  transition: background var(--transition);
+}
+
+.frame:last-child { border-bottom: none; }
+
+.frame:hover { background: var(--bg-secondary); }
+
+.frame.crashing {
+  background: var(--accent-red-dim);
+  border-left: 2px solid var(--accent-red);
+  padding-left: calc(1rem - 2px);
+}
+
+.frame.crashing:hover {
+  background: rgba(248, 81, 73, 0.2);
+}
+
+.frame-idx {
+  color: var(--text-muted);
+  text-align: right;
+  font-size: 0.72rem;
+  padding-top: 0.15rem;
+}
+
+.frame-image {
+  color: var(--accent-blue);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.frame-addr {
+  color: var(--text-muted);
+}
+
+.frame-symbol {
+  color: var(--text-primary);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.frame.crashing .frame-symbol {
+  color: var(--accent-red);
+  font-weight: 600;
+}
+
+.frame-offset {
+  color: var(--text-muted);
+  font-size: 0.72rem;
+}
+
+/* ── Thread State Table ─────────────────── */
+.registers-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(240px, 1fr));
+  gap: 0;
+  background: var(--bg-secondary);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-md);
+  overflow: hidden;
+}
+
+.reg-row {
+  display: flex;
+  border-bottom: 1px solid var(--border-muted);
+}
+
+.reg-row:last-child { border-bottom: none; }
+
+.reg-name {
+  width: 4.5rem;
+  padding: 0.3rem 0.75rem;
+  font-family: var(--font-mono);
+  font-size: 0.78rem;
+  font-weight: 600;
+  color: var(--accent-purple);
+  background: var(--bg-tertiary);
+  flex-shrink: 0;
+}
+
+.reg-val {
+  padding: 0.3rem 0.75rem;
+  font-family: var(--font-mono);
+  font-size: 0.78rem;
+  color: var(--text-primary);
+  word-break: break-all;
+}
+
+/* ── Binary Images ──────────────────────── */
+.images-table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 0.78rem;
+  background: var(--bg-secondary);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-md);
+  overflow: hidden;
+}
+
+.images-table th {
+  text-align: left;
+  padding: 0.5rem 0.75rem;
+  font-weight: 600;
+  font-size: 0.75rem;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+  color: var(--text-muted);
+  background: var(--bg-tertiary);
+  border-bottom: 1px solid var(--border);
+}
+
+.images-table td {
+  padding: 0.35rem 0.75rem;
+  border-bottom: 1px solid var(--border-muted);
+  font-family: var(--font-mono);
+  vertical-align: top;
+}
+
+.images-table tr:last-child td { border-bottom: none; }
+
+.images-table tr:hover td { background: var(--bg-tertiary); }
+
+.img-addr { color: var(--text-muted); }
+.img-ident { color: var(--accent-cyan); }
+.img-ver { color: var(--accent-amber); }
+.img-path { color: var(--text-secondary); word-break: break-all; max-width: 400px; }
+
+/* ── Raw Block (VM Region Info, etc.) ───── */
+.raw-block {
+  background: var(--bg-secondary);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-md);
+  padding: 1rem;
+  font-family: var(--font-mono);
+  font-size: 0.78rem;
+  line-height: 1.7;
+  color: var(--text-secondary);
+  white-space: pre-wrap;
+  overflow-x: auto;
+}
+
+/* ── Summary Bar ────────────────────────── */
+.summary-bar {
+  display: flex;
+  gap: 1rem;
+  flex-wrap: wrap;
+  margin-bottom: 1.5rem;
+  padding: 1rem 1.25rem;
+  background: var(--bg-secondary);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-md);
+}
+
+.summary-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.4rem;
+  font-size: 0.82rem;
+}
+
+.summary-chip-label {
+  color: var(--text-muted);
+  font-weight: 500;
+}
+
+.summary-chip-value {
+  color: var(--text-primary);
+  font-weight: 600;
+  font-family: var(--font-mono);
+}
+
+/* ── Footer ─────────────────────────────── */
+.app-footer {
+  margin-top: 3rem;
+  padding-top: 1.5rem;
+  border-top: 1px solid var(--border-muted);
+  text-align: center;
+  font-size: 0.78rem;
+  color: var(--text-muted);
+}
+
+/* ── Responsive ─────────────────────────── */
+@media (max-width: 768px) {
+  .app { padding: 1rem; }
+  html { font-size: 14px; }
+  .frame {
+    grid-template-columns: 2rem 1fr;
+    gap: 0.25rem 0.5rem;
+    padding: 0.35rem 0.75rem;
+  }
+  .frame-addr { display: none; }
+  .kv-table .kv-key { width: 120px; }
+  .app-header { flex-wrap: wrap; }
+  .app-subtitle { margin-left: 0; width: 100%; }
+  .summary-bar { flex-direction: column; gap: 0.4rem; }
+  .registers-grid { grid-template-columns: 1fr; }
+  .images-table { font-size: 0.72rem; }
+}
+</style>
+</head>
+<body>
+<div class="app">
+  <header class="app-header">
+    <div class="app-logo">&#x1f4a5;</div>
+    <span class="app-title">Crush Report Viewer</span>
+    <span class="app-subtitle">macOS Crash Report Parser</span>
+  </header>
+
+  <div class="input-section">
+    <label for="crashInput">Paste Crash Report</label>
+    <textarea id="crashInput" placeholder="Paste a macOS crash report here...&#10;&#10;Supports both standard and translated report formats."></textarea>
+    <div class="actions">
+      <button class="btn btn-primary" id="parseBtn" onclick="parseReport()">
+        <svg viewBox="0 0 16 16" fill="currentColor"><path d="M11.013 1.427a1.75 1.75 0 0 1 2.474 0l1.086 1.086a1.75 1.75 0 0 1 0 2.474l-8.61 8.61c-.21.21-.47.364-.756.445l-3.251.93a.75.75 0 0 1-.927-.928l.929-3.25c.081-.286.235-.547.445-.758l8.61-8.61Zm.176 4.823L9.75 4.81l-6.286 6.287a.253.253 0 0 0-.064.108l-.558 1.953 1.953-.558a.253.253 0 0 0 .108-.064Zm1.238-3.763a.25.25 0 0 0-.354 0L10.811 3.75l1.439 1.44 1.263-1.263a.25.25 0 0 0 0-.354Z"/></svg>
+        Parse Report
+      </button>
+      <button class="btn btn-success hidden" id="downloadBtn" onclick="downloadMarkdown()">
+        <svg viewBox="0 0 16 16" fill="currentColor"><path d="M2.75 14A1.75 1.75 0 0 1 1 12.25v-2.5a.75.75 0 0 1 1.5 0v2.5c0 .138.112.25.25.25h10.5a.25.25 0 0 0 .25-.25v-2.5a.75.75 0 0 1 1.5 0v2.5A1.75 1.75 0 0 1 13.25 14Z"/><path d="M7.25 7.689V2a.75.75 0 0 1 1.5 0v5.689l1.97-1.969a.749.749 0 1 1 1.06 1.06l-3.25 3.25a.749.749 0 0 1-1.06 0L4.22 6.78a.749.749 0 1 1 1.06-1.06Z"/></svg>
+        Download Markdown
+      </button>
+      <button class="btn btn-secondary" id="clearBtn" onclick="clearAll()">
+        <svg viewBox="0 0 16 16" fill="currentColor"><path d="M3.72 3.72a.75.75 0 0 1 1.06 0L8 6.94l3.22-3.22a.749.749 0 0 1 1.275.326.749.749 0 0 1-.215.734L9.06 8l3.22 3.22a.749.749 0 0 1-.326 1.275.749.749 0 0 1-.734-.215L8 9.06l-3.22 3.22a.751.751 0 0 1-1.042-.018.751.751 0 0 1-.018-1.042L6.94 8 3.72 4.78a.75.75 0 0 1 0-1.06Z"/></svg>
+        Clear
+      </button>
+    </div>
+    <div id="messageArea"></div>
+  </div>
+
+  <div id="reportOutput"></div>
+
+  <footer class="app-footer">
+    Crush Report Viewer &mdash; Client-side macOS crash report parser
+  </footer>
+</div>
+
+<script>
+// ── SVG Icons ──────────────────────────────
+const CHEVRON_SVG = '<svg class="thread-chevron" viewBox="0 0 16 16" fill="currentColor"><path d="M6.22 3.22a.75.75 0 0 1 1.06 0l4.25 4.25a.75.75 0 0 1 0 1.06l-4.25 4.25a.751.751 0 0 1-1.042-.018.751.751 0 0 1-.018-1.042L9.94 8 6.22 4.28a.75.75 0 0 1 0-1.06Z"/></svg>';
+
+// ── Parser ─────────────────────────────────
+
+function parseCrashReport(text) {
+  const lines = text.split('\n');
+  const result = {
+    header: [],
+    exception: [],
+    vmRegionInfo: null,
+    threads: [],
+    binaryImages: [],
+    externalModSummary: null,
+    vmRegionSummary: null,
+    threadState: null,
+    rawSections: []
+  };
+
+  let section = 'header';
+  let currentThread = null;
+  let currentSectionLines = [];
+  let threadStateThreadNum = null;
+  let i = 0;
+
+  while (i < lines.length) {
+    const line = lines[i];
+    const trimmed = line.trim();
+
+    // Detect section transitions
+    if (/^Exception (Type|Codes|Subtype|Note):/i.test(trimmed) ||
+        /^Termination (Reason|Signal):/i.test(trimmed) ||
+        /^Triggered by Thread:/i.test(trimmed)) {
+      flushSection(section, result, currentSectionLines, currentThread);
+      section = 'exception';
+      currentSectionLines = [];
+      currentSectionLines.push(trimmed);
+      i++;
+      continue;
+    }
+
+    if (/^VM Region Info:/i.test(trimmed)) {
+      flushSection(section, result, currentSectionLines, currentThread);
+      section = 'vmRegionInfo';
+      currentSectionLines = [];
+      currentSectionLines.push(trimmed);
+      i++;
+      continue;
+    }
+
+    const threadMatch = trimmed.match(/^Thread (\d+)\s*(Crashed)?\s*(?::{1,3})?\s*(.*)/);
+    if (threadMatch && !trimmed.startsWith('Thread State')) {
+      flushSection(section, result, currentSectionLines, currentThread);
+      section = 'thread';
+      const threadNum = parseInt(threadMatch[1]);
+      const crashed = !!threadMatch[2];
+      const name = threadMatch[4] ? threadMatch[4].replace(/^\s+/, '') : '';
+      currentThread = { id: threadNum, crashed, name, frames: [] };
+      result.threads.push(currentThread);
+      currentSectionLines = [];
+      i++;
+      continue;
+    }
+
+    if (/^Thread State /i.test(trimmed)) {
+      flushSection(section, result, currentSectionLines, currentThread);
+      section = 'threadState';
+      // Parse which thread this state is for
+      const tsMatch = trimmed.match(/Thread (\d+)/i);
+      threadStateThreadNum = tsMatch ? parseInt(tsMatch[1]) : null;
+      currentSectionLines = [trimmed];
+      i++;
+      continue;
+    }
+
+    if (/^Binary Images:/i.test(trimmed)) {
+      flushSection(section, result, currentSectionLines, currentThread);
+      section = 'binaryImages';
+      currentSectionLines = [];
+      i++;
+      continue;
+    }
+
+    if (/^External Modification Summary:/i.test(trimmed)) {
+      flushSection(section, result, currentSectionLines, currentThread);
+      section = 'externalMod';
+      currentSectionLines = [];
+      currentSectionLines.push(trimmed);
+      i++;
+      continue;
+    }
+
+    if (/^VM Region Summary:/i.test(trimmed)) {
+      flushSection(section, result, currentSectionLines, currentThread);
+      section = 'vmRegionSummary';
+      currentSectionLines = [];
+      currentSectionLines.push(trimmed);
+      i++;
+      continue;
+    }
+
+    // Also detect "EOF" or empty section markers
+    if (/^\s*={10,}/.test(trimmed) && section === 'threadState') {
+      flushSection(section, result, currentSectionLines, currentThread);
+      section = 'unknown';
+      currentSectionLines = [];
+      i++;
+      continue;
+    }
+
+    currentSectionLines.push(line);
+    i++;
+  }
+  flushSection(section, result, currentSectionLines, currentThread);
+
+  // Assign thread state to the correct thread
+  if (result.threadState) {
+    const tsThread = result.threads.find(t => t.id === threadStateThreadNum);
+    if (tsThread) {
+      tsThread.state = result.threadState.registers;
+    }
+  }
+
+  return result;
+}
+
+function flushSection(section, result, lines, currentThread) {
+  switch (section) {
+    case 'header':
+      result.header = parseHeaderLines(lines);
+      break;
+    case 'exception':
+      result.exception = parseKVLines(lines);
+      break;
+    case 'vmRegionInfo':
+      result.vmRegionInfo = lines.join('\n').trim();
+      break;
+    case 'thread':
+      if (currentThread) {
+        currentThread.frames = parseFrames(lines);
+      }
+      break;
+    case 'threadState':
+      result.threadState = parseThreadState(lines);
+      break;
+    case 'binaryImages':
+      result.binaryImages = parseBinaryImages(lines);
+      break;
+    case 'externalMod':
+      result.externalModSummary = lines.join('\n').trim();
+      break;
+    case 'vmRegionSummary':
+      result.vmRegionSummary = lines.join('\n').trim();
+      break;
+  }
+}
+
+function parseHeaderLines(lines) {
+  const kvs = [];
+  for (const line of lines) {
+    const trimmed = line.trim();
+    if (!trimmed) continue;
+    // Match "Key: Value" but not if Value starts with spaces in a continuation
+    const match = trimmed.match(/^([^:]+?):\s+(.*)/);
+    if (match) {
+      const key = match[1].trim();
+      const val = match[2].trim();
+      if (val) {
+        kvs.push({ key, value: val });
+      }
+    }
+  }
+  return kvs;
+}
+
+function parseKVLines(lines) {
+  const kvs = [];
+  for (const line of lines) {
+    const trimmed = line.trim();
+    if (!trimmed) continue;
+    const match = trimmed.match(/^([^:]+?):\s+(.*)/);
+    if (match) {
+      kvs.push({ key: match[1].trim(), value: match[2].trim() });
+    }
+  }
+  return kvs;
+}
+
+function parseFrames(lines) {
+  const frames = [];
+  for (const line of lines) {
+    const trimmed = line.trim();
+    if (!trimmed) continue;
+    // Frame: INDEX  IMAGE  ADDRESS  SYMBOL + OFFSET
+    // or: INDEX  IMAGE  ADDRESS  ???
+    const match = trimmed.match(/^(\d+)\s+(\S+)\s+(0x[0-9a-fA-F]+)\s+(.*)/);
+    if (match) {
+      const idx = parseInt(match[1]);
+      const image = match[2];
+      const addr = match[3];
+      let symbol = '';
+      let offset = '';
+      const symPart = match[4].trim();
+      if (symPart && symPart !== '???') {
+        const offMatch = symPart.match(/^(.+?)\s*\+\s*(\d+)$/);
+        if (offMatch) {
+          symbol = offMatch[1].trim();
+          offset = offMatch[2];
+        } else {
+          symbol = symPart;
+        }
+      } else if (symPart === '???') {
+        symbol = '???';
+      }
+      frames.push({ idx, image, addr, symbol, offset });
+    }
+  }
+  return frames;
+}
+
+function parseThreadState(lines) {
+  const registers = [];
+  for (const line of lines) {
+    const trimmed = line.trim();
+    if (!trimmed) continue;
+    // Register: x0  0x000000014d94c000
+    // Also handle lines like "x0:  0x..." or "cpsr:  0x..."
+    const match = trimmed.match(/^(\w+)\s+(0x[0-9a-fA-F]+)/i);
+    if (match) {
+      registers.push({ name: match[1], value: match[2] });
+    }
+  }
+  return { registers };
+}
+
+function parseBinaryImages(lines) {
+  const images = [];
+  for (const line of lines) {
+    const trimmed = line.trim();
+    if (!trimmed) continue;
+    // 0x1045e0000 - 0x106f6ffff com.cycling74.Max (9.1.3) <uuid> /path
+    const match = trimmed.match(/^(0x[0-9a-fA-F]+)\s+-\s+(0x[0-9a-fA-F]+)\s+(\S+)\s+(?:\(([^)]*)\)\s+)?(?:<[^>]+>\s+)?(.*)/);
+    if (match) {
+      images.push({
+        start: match[1],
+        end: match[2],
+        identifier: match[3],
+        version: match[4] || '',
+        path: match[5] ? match[5].trim() : ''
+      });
+    }
+  }
+  return images;
+}
+
+// ── Renderers ──────────────────────────────
+
+function renderReport(parsed) {
+  const out = document.getElementById('reportOutput');
+  out.innerHTML = '';
+
+  // Summary bar
+  const processKV = parsed.header.find(kv => kv.key === 'Process');
+  const exceptionType = parsed.exception.find(kv => kv.key === 'Exception Type');
+  const triggeredThread = parsed.exception.find(kv => kv.key === 'Triggered by Thread');
+  const crashedThread = parsed.threads.find(t => t.crashed);
+
+  if (processKV || exceptionType) {
+    const bar = document.createElement('div');
+    bar.className = 'summary-bar';
+    if (processKV) bar.innerHTML += `<span class="summary-chip"><span class="summary-chip-label">Process:</span> <span class="summary-chip-value">${esc(processKV.value)}</span></span>`;
+    if (exceptionType) bar.innerHTML += `<span class="summary-chip"><span class="summary-chip-label">Exception:</span> <span class="summary-chip-value" style="color:var(--accent-red)">${esc(exceptionType.value)}</span></span>`;
+    if (triggeredThread) bar.innerHTML += `<span class="summary-chip"><span class="summary-chip-label">Thread:</span> <span class="summary-chip-value">${esc(triggeredThread.value)}</span></span>`;
+    if (crashedThread) bar.innerHTML += `<span class="summary-chip"><span class="summary-chip-label">Frames:</span> <span class="summary-chip-value">${crashedThread.frames.length}</span></span>`;
+    out.appendChild(bar);
+  }
+
+  // Header
+  if (parsed.header.length) {
+    out.appendChild(renderKVSection('Process Information', parsed.header, 'kv-table'));
+  }
+
+  // Exception
+  if (parsed.exception.length) {
+    out.appendChild(renderKVSection('Exception', parsed.exception, 'kv-table exception-box'));
+  }
+
+  // VM Region Info
+  if (parsed.vmRegionInfo) {
+    out.appendChild(renderRawSection('VM Region Info', parsed.vmRegionInfo));
+  }
+
+  // Crashed Thread (prominent)
+  if (crashedThread) {
+    out.appendChild(renderThreadSection(crashedThread, true));
+  }
+
+  // All other threads
+  for (const thread of parsed.threads) {
+    if (thread.crashed) continue;
+    out.appendChild(renderThreadSection(thread, false));
+  }
+
+  // Thread State
+  const stateTarget = crashedThread || (triggeredThread ? parsed.threads.find(t => t.id === parseInt(triggeredThread.value)) : null);
+  if (stateTarget && stateTarget.state && stateTarget.state.length) {
+    out.appendChild(renderThreadState(stateTarget));
+  } else if (parsed.threadState && parsed.threadState.registers.length) {
+    const tsLabel = triggeredThread ? `Thread State (Thread ${triggeredThread.value})` : 'Thread State';
+    out.appendChild(renderRegisters(tsLabel, parsed.threadState.registers));
+  }
+
+  // External Modification Summary
+  if (parsed.externalModSummary) {
+    out.appendChild(renderRawSection('External Modification Summary', parsed.externalModSummary));
+  }
+
+  // VM Region Summary
+  if (parsed.vmRegionSummary) {
+    out.appendChild(renderRawSection('VM Region Summary', parsed.vmRegionSummary));
+  }
+
+  // Binary Images
+  if (parsed.binaryImages.length) {
+    out.appendChild(renderBinaryImages(parsed.binaryImages));
+  }
+
+  out.classList.add('visible');
+  document.getElementById('downloadBtn').classList.remove('hidden');
+}
+
+function renderKVSection(title, kvs, tableClass) {
+  const section = document.createElement('div');
+  section.className = 'section';
+  section.innerHTML = `<div class="section-title">${esc(title)}</div>`;
+  const table = document.createElement('table');
+  table.className = tableClass;
+  for (const kv of kvs) {
+    const tr = document.createElement('tr');
+    tr.innerHTML = `<td class="kv-key">${esc(kv.key)}</td><td class="kv-val">${esc(kv.value)}</td>`;
+    table.appendChild(tr);
+  }
+  section.appendChild(table);
+  return section;
+}
+
+function renderThreadSection(thread, isCrashed) {
+  const section = document.createElement('div');
+  section.className = `thread-section${isCrashed ? ' crashed open' : ''}`;
+
+  const name = thread.name ? `: ${thread.name}` : '';
+  const crashedLabel = isCrashed ? '<span class="thread-badge badge-crashed">CRASHED</span>' : '';
+
+  const header = document.createElement('div');
+  header.className = 'thread-header';
+  header.innerHTML = `${CHEVRON_SVG}<span class="thread-name">Thread ${thread.id}${esc(name)}</span>${crashedLabel}<span class="thread-badge badge-frames">${thread.frames.length} frames</span>`;
+  header.onclick = () => section.classList.toggle('open');
+
+  const body = document.createElement('div');
+  body.className = 'thread-body';
+
+  if (thread.frames.length === 0) {
+    body.innerHTML = '<div class="thread-empty">No stack frames</div>';
+  } else {
+    const ul = document.createElement('ul');
+    ul.className = 'frame-list';
+    for (const frame of thread.frames) {
+      const li = document.createElement('li');
+      const isCrashing = isCrashed && frame.idx === 0;
+      li.className = `frame${isCrashing ? ' crashing' : ''}`;
+      const symHTML = frame.symbol === '???' ? '<span style="color:var(--text-muted)">???</span>' : esc(frame.symbol);
+      const offHTML = frame.offset ? ` <span class="frame-offset">+ ${esc(frame.offset)}</span>` : '';
+      li.innerHTML = `<span class="frame-idx">${frame.idx}</span><span class="frame-image" title="${esc(frame.image)}">${esc(frame.image)}</span><span class="frame-addr">${esc(frame.addr)}</span><span class="frame-symbol">${symHTML}${offHTML}</span>`;
+      ul.appendChild(li);
+    }
+    body.appendChild(ul);
+  }
+
+  section.appendChild(header);
+  section.appendChild(body);
+  return section;
+}
+
+function renderThreadState(thread) {
+  return renderRegisters(`Thread State (Thread ${thread.id})`, thread.state);
+}
+
+function renderRegisters(title, registers) {
+  const section = document.createElement('div');
+  section.className = 'section';
+  section.innerHTML = `<div class="section-title">${esc(title)}</div>`;
+  const grid = document.createElement('div');
+  grid.className = 'registers-grid';
+  for (const reg of registers) {
+    const row = document.createElement('div');
+    row.className = 'reg-row';
+    row.innerHTML = `<span class="reg-name">${esc(reg.name)}</span><span class="reg-val">${esc(reg.value)}</span>`;
+    grid.appendChild(row);
+  }
+  section.appendChild(grid);
+  return section;
+}
+
+function renderBinaryImages(images) {
+  const section = document.createElement('div');
+  section.className = 'section';
+  section.innerHTML = `<div class="section-title">Binary Images (${images.length})</div>`;
+  const table = document.createElement('table');
+  table.className = 'images-table';
+  table.innerHTML = `<thead><tr><th>Address Range</th><th>Identifier</th><th>Version</th><th>Path</th></tr></thead>`;
+  const tbody = document.createElement('tbody');
+  for (const img of images) {
+    const tr = document.createElement('tr');
+    tr.innerHTML = `<td class="img-addr">${esc(img.start)} - ${esc(img.end)}</td><td class="img-ident">${esc(img.identifier)}</td><td class="img-ver">${esc(img.version)}</td><td class="img-path">${esc(img.path)}</td>`;
+    tbody.appendChild(tr);
+  }
+  table.appendChild(tbody);
+  section.appendChild(table);
+  return section;
+}
+
+function renderRawSection(title, content) {
+  const section = document.createElement('div');
+  section.className = 'section';
+  section.innerHTML = `<div class="section-title">${esc(title)}</div>`;
+  const pre = document.createElement('div');
+  pre.className = 'raw-block';
+  pre.textContent = content;
+  section.appendChild(pre);
+  return section;
+}
+
+// ── Markdown Generator ─────────────────────
+
+function generateMarkdown(parsed) {
+  let md = '';
+
+  const processKV = parsed.header.find(kv => kv.key === 'Process');
+  const processName = processKV ? processKV.value : 'Unknown';
+  const pidMatch = processName.match(/\[(\d+)\]/);
+  const pid = pidMatch ? pidMatch[1] : '?';
+
+  md += `# Crash Report: ${processName}\n\n`;
+
+  // Overview
+  md += '## Overview\n\n';
+  md += '| Field | Value |\n|-------|-------|\n';
+  for (const kv of parsed.header) {
+    md += `| **${kv.key}** | ${kv.value} |\n`;
+  }
+  md += '\n';
+
+  // Exception
+  if (parsed.exception.length) {
+    md += '## Exception\n\n';
+    md += '| Field | Value |\n|-------|-------|\n';
+    for (const kv of parsed.exception) {
+      md += `| **${kv.key}** | ${kv.value} |\n`;
+    }
+    md += '\n';
+  }
+
+  // Crashed Thread
+  const crashedThread = parsed.threads.find(t => t.crashed);
+  if (crashedThread) {
+    const name = crashedThread.name ? `: ${crashedThread.name}` : '';
+    md += `## Crashed Thread (Thread ${crashedThread.id}${name})\n\n`;
+    md += '```\n';
+    for (const frame of crashedThread.frames) {
+      const sym = frame.symbol === '???' ? '???' : frame.symbol;
+      const off = frame.offset ? ` + ${frame.offset}` : '';
+      md += `${frame.idx}  ${frame.image}  ${frame.addr}  ${sym}${off}\n`;
+    }
+    md += '```\n\n';
+  }
+
+  // All Threads
+  if (parsed.threads.length > 1) {
+    md += '## All Threads\n\n';
+    for (const thread of parsed.threads) {
+      if (thread.crashed) continue;
+      const name = thread.name ? `: ${thread.name}` : '';
+      md += `### Thread ${thread.id}${name}\n\n`;
+      if (thread.frames.length === 0) {
+        md += '*No stack frames*\n\n';
+      } else {
+        md += '```\n';
+        for (const frame of thread.frames) {
+          const sym = frame.symbol === '???' ? '???' : frame.symbol;
+          const off = frame.offset ? ` + ${frame.offset}` : '';
+          md += `${frame.idx}  ${frame.image}  ${frame.addr}  ${sym}${off}\n`;
+        }
+        md += '```\n\n';
+      }
+    }
+  }
+
+  // Thread State
+  const stateTarget = crashedThread;
+  if (stateTarget && stateTarget.state && stateTarget.state.length) {
+    const name = stateTarget.name ? `: ${stateTarget.name}` : '';
+    md += `## Thread State (Thread ${stateTarget.id}${name})\n\n`;
+    md += '| Register | Value |\n|----------|-------|\n';
+    for (const reg of stateTarget.state) {
+      md += `| ${reg.name} | ${reg.value} |\n`;
+    }
+    md += '\n';
+  } else if (parsed.threadState && parsed.threadState.registers.length) {
+    md += '## Thread State\n\n';
+    md += '| Register | Value |\n|----------|-------|\n';
+    for (const reg of parsed.threadState.registers) {
+      md += `| ${reg.name} | ${reg.value} |\n`;
+    }
+    md += '\n';
+  }
+
+  // Binary Images
+  if (parsed.binaryImages.length) {
+    md += '## Binary Images\n\n';
+    md += '| Address Range | Identifier | Version | Path |\n|--------------|------------|---------|------|\n';
+    for (const img of parsed.binaryImages) {
+      md += `| ${img.start} - ${img.end} | ${img.identifier} | ${img.version} | ${img.path} |\n`;
+    }
+    md += '\n';
+  }
+
+  // VM Region Info
+  if (parsed.vmRegionInfo) {
+    md += '## VM Region Info\n\n';
+    md += '```\n' + parsed.vmRegionInfo + '\n```\n\n';
+  }
+
+  // External Modification Summary
+  if (parsed.externalModSummary) {
+    md += '## External Modification Summary\n\n';
+    md += '```\n' + parsed.externalModSummary + '\n```\n\n';
+  }
+
+  // VM Region Summary
+  if (parsed.vmRegionSummary) {
+    md += '## VM Region Summary\n\n';
+    md += '```\n' + parsed.vmRegionSummary + '\n```\n\n';
+  }
+
+  return md;
+}
+
+// ── Actions ────────────────────────────────
+
+function parseReport() {
+  const text = document.getElementById('crashInput').value.trim();
+  const msgArea = document.getElementById('messageArea');
+  msgArea.innerHTML = '';
+
+  if (!text) {
+    showMessage('error', 'Please paste a crash report first.');
+    return;
+  }
+
+  try {
+    const parsed = parseCrashReport(text);
+
+    if (parsed.header.length === 0 && parsed.threads.length === 0) {
+      showMessage('error', 'Could not parse the input. Make sure it\'s a valid macOS crash report.');
+      return;
+    }
+
+    renderReport(parsed);
+    window._lastParsed = parsed;
+  } catch (e) {
+    showMessage('error', `Parser error: ${e.message}`);
+  }
+}
+
+function downloadMarkdown() {
+  if (!window._lastParsed) return;
+  const md = generateMarkdown(window._lastParsed);
+  const blob = new Blob([md], { type: 'text/markdown;charset=utf-8' });
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement('a');
+  a.href = url;
+
+  const processKV = window._lastParsed.header.find(kv => kv.key === 'Process');
+  const processName = processKV ? processKV.value.replace(/\s*\[.*\]/, '').replace(/[^a-zA-Z0-9._-]/g, '_') : 'crash_report';
+  a.download = `${processName}_crash.md`;
+  document.body.appendChild(a);
+  a.click();
+  document.body.removeChild(a);
+  URL.revokeObjectURL(url);
+}
+
+function clearAll() {
+  document.getElementById('crashInput').value = '';
+  document.getElementById('reportOutput').innerHTML = '';
+  document.getElementById('reportOutput').classList.remove('visible');
+  document.getElementById('downloadBtn').classList.add('hidden');
+  document.getElementById('messageArea').innerHTML = '';
+  window._lastParsed = null;
+}
+
+function showMessage(type, text) {
+  const area = document.getElementById('messageArea');
+  area.innerHTML = `<div class="message-box message-${type}">${esc(text)}</div>`;
+}
+
+function esc(str) {
+  const div = document.createElement('div');
+  div.textContent = str;
+  return div.innerHTML;
+}
+
+// ── Keyboard shortcut ──────────────────────
+document.getElementById('crashInput').addEventListener('keydown', function(e) {
+  if ((e.metaKey || e.ctrlKey) && e.key === 'Enter') {
+    e.preventDefault();
+    parseReport();
+  }
+});
+</script>
+</body>
+</html>
