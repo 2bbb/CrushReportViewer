@@ -2044,37 +2044,8 @@ function generateMarkdown(parsed) {
 
   md += `# Crash Report: ${processName}\n\n`;
 
-  // ── Executive Summary ──
-  const faultMdInfo = getFaultingAddress(parsed.exception, parsed.binaryImages);
-  const crashedFunc = (crashedThread && crashedThread.frames.length > 0)
-    ? (crashedThread.frames[0].symbol === '???' ? crashedThread.frames[0].image : crashedThread.frames[0].symbol)
-    : null;
-  const osVersion = osVersionKV ? osVersionKV.value : '';
-  const hardware = hardwareKV ? hardwareKV.value : '';
-  const threadNum = triggeredThreadKV ? triggeredThreadKV.value : (crashedThread ? String(crashedThread.id) : '?');
-  const exceptionTypeStr = exceptionTypeKV ? exceptionTypeKV.value : 'Unknown';
-
-  let summaryLine = `**${exceptionTypeStr}**`;
-  if (crashedFunc) summaryLine += ` in \`${crashedFunc}\``;
-  if (faultMdInfo.address) summaryLine += ` at \`${faultMdInfo.address}\``;
-  if (faultMdInfo.analysis) summaryLine += ` (${faultMdInfo.analysis})`;
-  summaryLine += `. Thread ${threadNum} crashed`;
-  if (osVersion) summaryLine += ` on ${osVersion}`;
-  if (hardware) summaryLine += ` (${hardware})`;
-  if (uptime) summaryLine += `. Process ran for ${uptime.replace(/^Process crashed /, '').replace(/ before crash$/, '')}`;
-  summaryLine += '.';
-
-  md += `> ${summaryLine}\n\n`;
-
-  // Signal explanation
-  if (exceptionTypeKV) {
-    const signalExpl = explainSignal(exceptionTypeKV.value);
-    if (signalExpl && signalExpl !== exceptionTypeKV.value) {
-      md += `> **${exceptionTypeKV.value}**: ${signalExpl}\n\n`;
-    }
-  }
-
   // ── Diagnosis Table ──
+  const faultMdInfo = getFaultingAddress(parsed.exception, parsed.binaryImages);
   md += '## Diagnosis\n\n';
   md += '| Item | Details |\n|------|---------|\n';
 
