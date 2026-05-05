@@ -598,6 +598,110 @@ body {
   overflow-x: auto;
 }
 
+/* ── Analysis Note ──────────────────────── */
+.analysis-note {
+  font-size: 0.82rem;
+  color: var(--text-secondary);
+  padding: 0.5rem 0.75rem;
+  background: var(--bg-secondary);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  margin-bottom: 0.5rem;
+  line-height: 1.5;
+}
+
+.analysis-note strong {
+  color: var(--text-primary);
+}
+
+/* ── Collapsible Section (VM Region, etc.) ── */
+.collapsible-section {
+  border: 1px solid var(--border);
+  border-radius: var(--radius-md);
+  overflow: hidden;
+  margin-top: 0.5rem;
+}
+
+.collapsible-header {
+  display: flex;
+  align-items: center;
+  gap: 0.75rem;
+  padding: 0.5rem 1rem;
+  cursor: pointer;
+  user-select: none;
+  transition: background var(--transition);
+  background: var(--bg-secondary);
+  font-size: 0.82rem;
+  color: var(--text-secondary);
+}
+
+.collapsible-header:hover {
+  background: var(--bg-tertiary);
+}
+
+.collapsible-chevron {
+  width: 16px;
+  height: 16px;
+  transition: transform var(--transition);
+  color: var(--text-muted);
+  flex-shrink: 0;
+}
+
+.collapsible-section.open .collapsible-chevron {
+  transform: rotate(90deg);
+}
+
+.collapsible-body {
+  display: none;
+  background: var(--bg-primary);
+  overflow-x: auto;
+}
+
+.collapsible-section.open .collapsible-body {
+  display: block;
+}
+
+/* ── Region Table ───────────────────────── */
+.region-table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 0.75rem;
+  background: var(--bg-secondary);
+}
+
+.region-table th {
+  text-align: left;
+  padding: 0.4rem 0.6rem;
+  font-weight: 600;
+  font-size: 0.72rem;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+  color: var(--text-muted);
+  background: var(--bg-tertiary);
+  border-bottom: 1px solid var(--border);
+  font-family: var(--font-mono);
+}
+
+.region-table td {
+  padding: 0.3rem 0.6rem;
+  border-bottom: 1px solid var(--border-muted);
+  font-family: var(--font-mono);
+  vertical-align: top;
+}
+
+.region-table tr:last-child td { border-bottom: none; }
+.region-table tr:hover td { background: var(--bg-tertiary); }
+
+.region-table tr.highlighted td {
+  background: var(--accent-amber-dim);
+}
+
+.region-type { color: var(--text-primary); font-weight: 500; }
+.region-range { color: var(--accent-blue); }
+.region-vsize { color: var(--accent-purple); }
+.region-perm { color: var(--accent-cyan); }
+.region-detail { color: var(--text-secondary); }
+
 /* ── Summary Bar ────────────────────────── */
 .summary-bar {
   display: flex;
@@ -914,7 +1018,7 @@ function flushSection(section, result, lines, currentThread) {
       result.exception = parseKVLines(lines);
       break;
     case 'vmRegionInfo':
-      result.vmRegionInfo = lines.join('\n').trim();
+      result.vmRegionInfo = parseVMRegionInfo(lines);
       break;
     case 'thread':
       if (currentThread) {
@@ -928,10 +1032,10 @@ function flushSection(section, result, lines, currentThread) {
       result.binaryImages = parseBinaryImages(lines);
       break;
     case 'externalMod':
-      result.externalModSummary = lines.join('\n').trim();
+      result.externalModSummary = parseExternalMod(lines);
       break;
     case 'vmRegionSummary':
-      result.vmRegionSummary = lines.join('\n').trim();
+      result.vmRegionSummary = parseVMRegionSummary(lines);
       break;
   }
 }
@@ -1032,6 +1136,81 @@ function parseBinaryImages(lines) {
     }
   }
   return images;
+}
+
+// ── Section-Specific Parsers ─────────────────
+
+function parseRegionTableLine(line) {
+  const trimmed = line.trimEnd();
+  if (!trimmed) return null;
+  // Find hex-hex range by content (robust regardless of whitespace)
+  const hexRangeMatch = trimmed.match(/([0-9a-fA-F]{6,})-([0-9a-fA-F]{6,})/);
+  if (!hexRangeMatch) return null;
+  const rangeStart = trimmed.indexOf(hexRangeMatch[0]);
+  // Everything before the hex range is the type (after removing ---> prefix)
+  const isHighlighted = trimmed.includes('--->');
+  const beforeRange = trimmed.substring(0, rangeStart).replace(/^\s*(?:--->\s*)?/, '').trim();
+  if (!beforeRange) return null;
+  const rest = trimmed.substring(rangeStart + hexRangeMatch[0].length).trim();
+  const vsizeMatch = rest.match(/^\[([^\]]*)\]\s+(\S+)\s+(\S+)\s+(.*)/);
+  if (!vsizeMatch) return null;
+  return {
+    isHighlighted,
+    type: beforeRange,
+    range: hexRangeMatch[0],
+    vsize: vsizeMatch[1].trim(),
+    permissions: vsizeMatch[2],
+    shrm: vsizeMatch[3],
+    detail: vsizeMatch[4].trim()
+  };
+}
+
+function parseExternalMod(lines) {
+  const calls = [];
+  for (const line of lines) {
+    const trimmed = line.trim();
+    const match = trimmed.match(/^(\S+)\s*:\s*(\d+)/);
+    if (match) {
+      calls.push({ name: match[1], count: parseInt(match[2]) });
+    }
+  }
+  return { calls };
+}
+
+function parseVMRegionInfo(lines) {
+  if (!lines.length) return null;
+  const firstLine = lines[0].trim();
+  const headerMatch = firstLine.match(/^VM Region Info:\s+(0x[0-9a-fA-F]+)\s+(.+?)(?:\s{2,}Bytes after previous region:\s*(\d+))?(?:\s{2,}Bytes before next region:\s*(\d+))?$/);
+  const header = {
+    address: headerMatch ? headerMatch[1] : null,
+    status: headerMatch ? headerMatch[2].trim() : firstLine.replace(/^VM Region Info:\s*/, ''),
+    bytesAfterPrevious: headerMatch && headerMatch[3] ? parseInt(headerMatch[3]) : null,
+    bytesBeforeNext: headerMatch && headerMatch[4] ? parseInt(headerMatch[4]) : null,
+  };
+  const regions = [];
+  for (let i = 1; i < lines.length; i++) {
+    const trimmed = lines[i].trim();
+    if (!trimmed) continue;
+    if (trimmed.includes('REGION TYPE') && trimmed.includes('START')) continue;
+    const r = parseRegionTableLine(trimmed);
+    if (r) regions.push(r);
+  }
+  return { header, regions };
+}
+
+function parseVMRegionSummary(lines) {
+  if (!lines.length) return null;
+  const firstLine = lines[0].trim();
+  const summary = firstLine.replace(/^VM Region Summary:\s*/, '');
+  const regions = [];
+  for (let i = 1; i < lines.length; i++) {
+    const trimmed = lines[i].trim();
+    if (!trimmed) continue;
+    if (trimmed.includes('REGION TYPE') && trimmed.includes('START')) continue;
+    const r = parseRegionTableLine(trimmed);
+    if (r) regions.push(r);
+  }
+  return { summary, regions };
 }
 
 // ── Analysis Functions ──────────────────────
@@ -1146,6 +1325,53 @@ function classifyThread(thread, appImageName) {
   return 'idle';
 }
 
+function summarizeExternalMod(externalMod) {
+  if (!externalMod || !externalMod.calls || externalMod.calls.length === 0) return '';
+  const nonZero = externalMod.calls.filter(c => c.count > 0);
+  if (nonZero.length === 0) return 'No external modifications detected';
+  const total = nonZero.reduce((sum, c) => sum + c.count, 0);
+  const names = nonZero.map(c => c.name).join(', ');
+  return `${total} external modification${total > 1 ? 's' : ''} by other processes (${names})`;
+}
+
+function analyzeVMRegionInfo(vmRegionInfo, faultingAddress) {
+  if (!vmRegionInfo || !vmRegionInfo.header) return '';
+  const h = vmRegionInfo.header;
+  const parts = [];
+  if (h.address) parts.push(`Target address: ${h.address}`);
+  if (h.status) {
+    if (h.status.includes('not in any region')) {
+      parts.push('Address is NOT in any mapped region');
+    } else {
+      parts.push(h.status);
+    }
+  }
+  if (faultingAddress && vmRegionInfo.regions.length > 0) {
+    const faultNum = parseInt(faultingAddress, 16);
+    if (!isNaN(faultNum)) {
+      for (const region of vmRegionInfo.regions) {
+        const [startStr, endStr] = region.range.split('-');
+        const start = parseInt(startStr, 16);
+        const end = parseInt(endStr, 16);
+        if (isNaN(start) || isNaN(end)) continue;
+        if (h.address === faultingAddress && region.isHighlighted) {
+          parts.push(`Adjacent to highlighted region: ${region.type}`);
+        }
+        const distBefore = faultNum - end;
+        const distAfter = start - faultNum;
+        if (distBefore >= 0 && distBefore < 4096) {
+          parts.push(`Within 1 page after ${region.type}`);
+        } else if (distAfter >= 0 && distAfter < 4096) {
+          parts.push(`Within 1 page before ${region.type}`);
+        }
+      }
+    }
+  }
+  if (h.bytesAfterPrevious !== null) parts.push(`Gap after previous: ${h.bytesAfterPrevious.toLocaleString()} bytes`);
+  if (h.bytesBeforeNext !== null) parts.push(`Gap before next: ${h.bytesBeforeNext.toLocaleString()} bytes`);
+  return parts.join(' \u2014 ');
+}
+
 // ── Renderers ──────────────────────────────
 
 function renderReport(parsed) {
@@ -1157,6 +1383,14 @@ function renderReport(parsed) {
   const exceptionTypeKV = parsed.exception.find(kv => kv.key === 'Exception Type');
   const triggeredThread = parsed.exception.find(kv => kv.key === 'Triggered by Thread');
   const crashedThread = parsed.threads.find(t => t.crashed);
+
+  // Extract faulting address for VM Region Info analysis
+  const exceptionSubtypeKV = parsed.exception.find(kv => kv.key === 'Exception Subtype');
+  let faultingAddr = null;
+  if (exceptionSubtypeKV) {
+    const addrMatch = exceptionSubtypeKV.value.match(/0x[0-9a-fA-F]+/);
+    if (addrMatch) faultingAddr = addrMatch[0];
+  }
 
   // Resolve process path and app image name
   const processPathKV = parsed.header.find(kv => kv.key === 'Path');
@@ -1204,7 +1438,7 @@ function renderReport(parsed) {
 
   // VM Region Info
   if (parsed.vmRegionInfo) {
-    out.appendChild(renderRawSection('VM Region Info', parsed.vmRegionInfo));
+    out.appendChild(renderVMRegionInfoSection(parsed.vmRegionInfo, faultingAddr));
   }
 
   // ── Threads with grouping ──
@@ -1271,12 +1505,12 @@ function renderReport(parsed) {
 
   // External Modification Summary
   if (parsed.externalModSummary) {
-    out.appendChild(renderRawSection('External Modification Summary', parsed.externalModSummary));
+    out.appendChild(renderExternalModSection(parsed.externalModSummary));
   }
 
   // VM Region Summary
   if (parsed.vmRegionSummary) {
-    out.appendChild(renderRawSection('VM Region Summary', parsed.vmRegionSummary));
+    out.appendChild(renderVMRegionSummarySection(parsed.vmRegionSummary));
   }
 
   // Binary Images
@@ -1444,6 +1678,96 @@ function renderRawSection(title, content) {
   pre.textContent = content;
   section.appendChild(pre);
   return section;
+}
+
+function renderExternalModSection(externalMod) {
+  const section = document.createElement('div');
+  section.className = 'section';
+  section.innerHTML = '<div class="section-title">External Modification Summary</div>';
+  if (!externalMod || !externalMod.calls || externalMod.calls.length === 0) return section;
+  const table = document.createElement('table');
+  table.className = 'kv-table';
+  for (const call of externalMod.calls) {
+    const tr = document.createElement('tr');
+    const countStyle = call.count > 0
+      ? 'color:var(--accent-amber);font-weight:600'
+      : 'color:var(--text-muted)';
+    tr.innerHTML = `<td class="kv-key">${esc(call.name)}</td><td class="kv-val"><span style="${countStyle}">${call.count}</span></td>`;
+    table.appendChild(tr);
+  }
+  section.appendChild(table);
+  const summary = summarizeExternalMod(externalMod);
+  if (summary) {
+    const note = document.createElement('div');
+    note.className = 'analysis-note';
+    note.innerHTML = esc(summary);
+    section.appendChild(note);
+  }
+  return section;
+}
+
+function renderVMRegionInfoSection(vmRegionInfo, faultingAddress) {
+  const section = document.createElement('div');
+  section.className = 'section';
+  section.innerHTML = '<div class="section-title">VM Region Info</div>';
+  if (!vmRegionInfo) return section;
+  const analysis = analyzeVMRegionInfo(vmRegionInfo, faultingAddress);
+  if (analysis) {
+    const note = document.createElement('div');
+    note.className = 'analysis-note';
+    note.innerHTML = esc(analysis);
+    section.appendChild(note);
+  }
+  if (vmRegionInfo.regions.length > 0) {
+    section.appendChild(renderCollapsibleRegionTable(vmRegionInfo.regions, `${vmRegionInfo.regions.length} regions`));
+  }
+  return section;
+}
+
+function renderVMRegionSummarySection(vmRegionSummary) {
+  const section = document.createElement('div');
+  section.className = 'section';
+  section.innerHTML = '<div class="section-title">VM Region Summary</div>';
+  if (!vmRegionSummary) return section;
+  if (vmRegionSummary.summary) {
+    const note = document.createElement('div');
+    note.className = 'analysis-note';
+    note.innerHTML = esc(vmRegionSummary.summary);
+    section.appendChild(note);
+  }
+  if (vmRegionSummary.regions.length > 0) {
+    section.appendChild(renderCollapsibleRegionTable(vmRegionSummary.regions, `${vmRegionSummary.regions.length} regions`));
+  }
+  return section;
+}
+
+function renderCollapsibleRegionTable(regions, label) {
+  const wrapper = document.createElement('div');
+  wrapper.className = 'collapsible-section';
+  const header = document.createElement('div');
+  header.className = 'collapsible-header';
+  header.innerHTML = `${CHEVRON_SVG}<span>${esc(label)}</span>`;
+  header.onclick = () => wrapper.classList.toggle('open');
+  const body = document.createElement('div');
+  body.className = 'collapsible-body';
+  const table = document.createElement('table');
+  table.className = 'region-table';
+  table.innerHTML = '<thead><tr><th>Type</th><th>Range</th><th>Size</th><th>Perms</th><th>Detail</th></tr></thead>';
+  const tbody = document.createElement('tbody');
+  for (const region of regions) {
+    const tr = document.createElement('tr');
+    if (region.isHighlighted) tr.className = 'highlighted';
+    const typeDisplay = region.isHighlighted
+      ? `<span style="color:var(--accent-amber)">${esc(region.type)}</span>`
+      : esc(region.type);
+    tr.innerHTML = `<td class="region-type">${typeDisplay}</td><td class="region-range">${esc(region.range)}</td><td class="region-vsize">${esc(region.vsize)}</td><td class="region-perm">${esc(region.permissions)}</td><td class="region-detail">${esc(region.detail)}</td>`;
+    tbody.appendChild(tr);
+  }
+  table.appendChild(tbody);
+  body.appendChild(table);
+  wrapper.appendChild(header);
+  wrapper.appendChild(body);
+  return wrapper;
 }
 
 // ── Markdown Generator ─────────────────────
@@ -1666,19 +1990,52 @@ function generateMarkdown(parsed) {
   // ── VM Region Info ──
   if (parsed.vmRegionInfo) {
     md += '## VM Region Info\n\n';
-    md += '```\n' + parsed.vmRegionInfo + '\n```\n\n';
+    const h = parsed.vmRegionInfo.header;
+    if (h) {
+      if (h.address) md += `**Target Address**: ${h.address}\n`;
+      if (h.status) md += `**Status**: ${h.status}\n`;
+      if (h.bytesAfterPrevious !== null) md += `**Bytes After Previous Region**: ${h.bytesAfterPrevious.toLocaleString()}\n`;
+      if (h.bytesBeforeNext !== null) md += `**Bytes Before Next Region**: ${h.bytesBeforeNext.toLocaleString()}\n`;
+      md += '\n';
+    }
+    if (parsed.vmRegionInfo.regions.length > 0) {
+      md += '| Type | Range | Size | Perms | Detail |\n|------|-------|------|-------|--------|\n';
+      for (const r of parsed.vmRegionInfo.regions) {
+        const prefix = r.isHighlighted ? '\u2192 ' : '';
+        md += `| ${prefix}${r.type} | ${r.range} | ${r.vsize} | ${r.permissions} | ${r.detail} |\n`;
+      }
+      md += '\n';
+    }
   }
 
   // ── External Modification Summary ──
   if (parsed.externalModSummary) {
     md += '## External Modification Summary\n\n';
-    md += '```\n' + parsed.externalModSummary + '\n```\n\n';
+    const summary = summarizeExternalMod(parsed.externalModSummary);
+    if (summary) md += `> ${summary}\n\n`;
+    if (parsed.externalModSummary.calls && parsed.externalModSummary.calls.length > 0) {
+      md += '| Call | Count |\n|------|-------|\n';
+      for (const call of parsed.externalModSummary.calls) {
+        md += `| ${call.name} | ${call.count} |\n`;
+      }
+      md += '\n';
+    }
   }
 
   // ── VM Region Summary ──
   if (parsed.vmRegionSummary) {
     md += '## VM Region Summary\n\n';
-    md += '```\n' + parsed.vmRegionSummary + '\n```\n\n';
+    if (parsed.vmRegionSummary.summary) {
+      md += `> ${parsed.vmRegionSummary.summary}\n\n`;
+    }
+    if (parsed.vmRegionSummary.regions.length > 0) {
+      md += '| Type | Range | Size | Perms | Detail |\n|------|-------|------|-------|--------|\n';
+      for (const r of parsed.vmRegionSummary.regions) {
+        const prefix = r.isHighlighted ? '\u2192 ' : '';
+        md += `| ${prefix}${r.type} | ${r.range} | ${r.vsize} | ${r.permissions} | ${r.detail} |\n`;
+      }
+      md += '\n';
+    }
   }
 
   return md;
