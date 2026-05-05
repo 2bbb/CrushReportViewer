@@ -1639,27 +1639,26 @@ function renderReport(parsed) {
     out.appendChild(renderThreadSection(thread, false, false, parsed.binaryImages, effectiveProcessPath));
   }
 
-  // Idle threads (hidden behind toggle)
+  // Idle threads (collapsible group)
   if (idleThreads.length > 0) {
-    const idleContainer = document.createElement('div');
-    idleContainer.className = 'idle-threads-container';
-    idleContainer.style.display = 'none';
+    const group = document.createElement('div');
+    group.className = 'thread-section';
+
+    const groupHeader = document.createElement('div');
+    groupHeader.className = 'thread-header';
+    groupHeader.innerHTML = `${CHEVRON_SVG}<span class="thread-name">${idleThreads.length} Idle Threads</span><span class="thread-badge badge-frames">${idleThreads.length} threads</span>`;
+    groupHeader.onclick = () => group.classList.toggle('open');
+
+    const groupBody = document.createElement('div');
+    groupBody.className = 'thread-body';
 
     for (const thread of idleThreads) {
-      idleContainer.appendChild(renderThreadSection(thread, false, false, parsed.binaryImages, effectiveProcessPath));
+      groupBody.appendChild(renderThreadSection(thread, false, false, parsed.binaryImages, effectiveProcessPath));
     }
 
-    out.appendChild(idleContainer);
-
-    const toggleBtn = document.createElement('button');
-    toggleBtn.className = 'idle-threads-toggle';
-    toggleBtn.textContent = `Show ${idleThreads.length} idle threads`;
-    toggleBtn.onclick = () => {
-      const visible = idleContainer.style.display !== 'none';
-      idleContainer.style.display = visible ? 'none' : 'block';
-      toggleBtn.textContent = visible ? `Show ${idleThreads.length} idle threads` : `Hide ${idleThreads.length} idle threads`;
-    };
-    out.appendChild(toggleBtn);
+    group.appendChild(groupHeader);
+    group.appendChild(groupBody);
+    out.appendChild(group);
   }
 
   // Thread State
@@ -2075,53 +2074,41 @@ function generateMarkdown(parsed) {
     }
   }
 
-  // ── Root Cause Trace ──
-  if (crashedThread && crashedThread.frames.length > 0) {
-    md += '## Root Cause Trace\n\n';
+  // ── Diagnosis Table ──
+  md += '## Diagnosis\n\n';
+  md += '| Item | Details |\n|------|---------|\n';
 
+  if (exceptionTypeKV) {
+    const signalExpl = explainSignal(exceptionTypeKV.value);
+    const signalDetail = (signalExpl && signalExpl !== exceptionTypeKV.value)
+      ? `${exceptionTypeKV.value} \u2014 ${signalExpl}`
+      : exceptionTypeKV.value;
+    md += `| **Signal** | ${signalDetail} |\n`;
+  }
+
+  if (faultMdInfo.address) {
+    md += `| **Faulting Address** | ${faultMdInfo.address} \u2014 ${faultMdInfo.analysis} |\n`;
+  }
+
+  if (crashedThread && crashedThread.frames.length > 0) {
     const frame0 = crashedThread.frames[0];
     const ownership0 = classifyFrameOwnership(frame0.image, parsed.binaryImages, effectiveProcessPath);
+    md += `| **Crashed In** | ${frame0.image} (${ownership0.label}) at frame 0 |\n`;
 
-    let userFrame = null;
     for (const frame of crashedThread.frames) {
       const ownership = classifyFrameOwnership(frame.image, parsed.binaryImages, effectiveProcessPath);
-      if (ownership.owner === 'YOUR_APP') { userFrame = frame; break; }
-    }
-
-    if (ownership0.owner !== 'YOUR_APP' && userFrame) {
-      md += `The crash occurred in ${ownership0.label.toLowerCase()} code (${frame0.image}). The first user code in the call stack:\n\n`;
-    } else if (ownership0.owner === 'YOUR_APP') {
-      md += 'The crash occurred directly in application code.\n\n';
-    } else {
-      md += `The crash occurred in ${ownership0.label.toLowerCase()} code. No application frames found in the call stack.\n\n`;
-    }
-
-    md += '| # | Owner | Image | Symbol |\n|---|-------|-------|--------|\n';
-    for (const frame of crashedThread.frames) {
-      const sym = frame.symbol === '???' ? '???' : frame.symbol;
-      const off = frame.offset ? ` + ${frame.offset}` : '';
-      const ownership = classifyFrameOwnership(frame.image, parsed.binaryImages, effectiveProcessPath);
-      md += `| ${frame.idx} | ${ownership.label} | ${frame.image} | ${sym}${off} |\n`;
-    }
-    md += '\n';
-
-    if (userFrame) {
-      md += '**Analysis**: ';
-      if (ownership0.owner !== 'YOUR_APP') {
-        md += `The crash originated in \`${userFrame.symbol}\` which called into ${frame0.image}.`;
-        if (faultMdInfo.address) {
-          if (faultMdInfo.analysis.includes('NULL')) {
-            md += ' A NULL or invalid pointer was likely passed to the system call.';
-          } else if (faultMdInfo.analysis.includes('dangling') || faultMdInfo.analysis.includes('Outside')) {
-            md += ' The invalid address suggests a corrupted or freed buffer was passed to the system operation.';
-          }
-        }
-      } else {
-        md += `The crash occurred in \`${frame0.symbol}\` in application code.`;
+      if (ownership.owner === 'YOUR_APP') {
+        const sym = frame.symbol === '???' ? frame.image : frame.symbol;
+        md += `| **Last User Code** | ${sym} at frame ${frame.idx} in ${frame.image} |\n`;
+        break;
       }
-      md += '\n\n';
     }
   }
+
+  if (uptime) md += `| **Uptime** | ${uptime} |\n`;
+  if (osVersionKV) md += `| **OS** | ${osVersionKV.value} |\n`;
+  if (hardwareKV) md += `| **Hardware** | ${hardwareKV.value} |\n`;
+  md += '\n';
 
   // ── Thread summary ──
   const crashedThreads = [];
