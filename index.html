@@ -246,6 +246,55 @@ body {
   border-bottom: 1px solid var(--border-muted);
 }
 
+.section.collapsible {
+  border: 1px solid var(--border);
+  border-radius: var(--radius-md);
+  overflow: hidden;
+}
+
+.section.collapsible > .section-title {
+  margin-bottom: 0;
+  padding: 0.6rem 1rem;
+  padding-left: 2.25rem;
+  border-bottom: none;
+  cursor: pointer;
+  user-select: none;
+  transition: background var(--transition);
+  position: relative;
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+}
+
+.section.collapsible > .section-title::before {
+  content: '';
+  position: absolute;
+  left: 0.75rem;
+  width: 10px;
+  height: 10px;
+  border-right: 2px solid var(--text-muted);
+  border-bottom: 2px solid var(--text-muted);
+  transform: rotate(-45deg);
+  transition: transform var(--transition);
+}
+
+.section.collapsible.open > .section-title::before {
+  transform: rotate(45deg);
+}
+
+.section.collapsible > .section-title:hover {
+  background: var(--bg-tertiary);
+}
+
+.section.collapsible > .section-body {
+  display: none;
+}
+
+.section.collapsible.open > .section-body {
+  display: block;
+  padding: 0.75rem;
+}
+
 /* ── KV Table (Header / Exception) ──────── */
 .kv-table {
   width: 100%;
@@ -1456,6 +1505,47 @@ function analyzeVMRegionInfo(vmRegionInfo, faultingAddress) {
 
 // ── Renderers ──────────────────────────────
 
+function wrapCollapsible(title, contentElement, defaultOpen = true) {
+  const section = document.createElement('div');
+  section.className = `section collapsible${defaultOpen ? ' open' : ''}`;
+  const titleEl = document.createElement('div');
+  titleEl.className = 'section-title';
+  titleEl.textContent = title;
+  titleEl.onclick = () => section.classList.toggle('open');
+  const body = document.createElement('div');
+  body.className = 'section-body';
+  if (contentElement) body.appendChild(contentElement);
+  section.appendChild(titleEl);
+  section.appendChild(body);
+  return section;
+}
+
+function wrapCollapsibleKV(title, kvs, tableClass) {
+  const table = document.createElement('table');
+  table.className = tableClass;
+  for (const kv of kvs) {
+    const tr = document.createElement('tr');
+    tr.innerHTML = `<td class="kv-key">${esc(kv.key)}</td><td class="kv-val">${esc(kv.value)}</td>`;
+    table.appendChild(tr);
+  }
+  return wrapCollapsible(title, table);
+}
+
+function makeCollapsible(sectionEl) {
+  const titleEl = sectionEl.querySelector('.section-title');
+  if (!titleEl) return sectionEl;
+  const title = titleEl.textContent;
+  const wrapper = document.createElement('div');
+  while (sectionEl.firstChild) {
+    if (sectionEl.firstChild === titleEl) {
+      sectionEl.removeChild(sectionEl.firstChild);
+    } else {
+      wrapper.appendChild(sectionEl.firstChild);
+    }
+  }
+  return wrapCollapsible(title, wrapper);
+}
+
 function renderReport(parsed) {
   const out = document.getElementById('reportOutput');
   out.innerHTML = '';
@@ -1516,7 +1606,7 @@ function renderReport(parsed) {
 
   // VM Region Info
   if (parsed.vmRegionInfo) {
-    out.appendChild(renderVMRegionInfoSection(parsed.vmRegionInfo, faultingAddr));
+    out.appendChild(makeCollapsible(renderVMRegionInfoSection(parsed.vmRegionInfo, faultingAddr)));
   }
 
   // ── Threads with grouping ──
@@ -1575,30 +1665,30 @@ function renderReport(parsed) {
   // Thread State
   const stateTarget = crashedThread || (triggeredThread ? parsed.threads.find(t => t.id === parseInt(triggeredThread.value)) : null);
   if (stateTarget && stateTarget.state && stateTarget.state.length) {
-    out.appendChild(renderThreadState(stateTarget));
+    out.appendChild(makeCollapsible(renderThreadState(stateTarget)));
   } else if (parsed.threadState && parsed.threadState.registers.length) {
     const tsLabel = triggeredThread ? `Thread State (Thread ${triggeredThread.value})` : 'Thread State';
-    out.appendChild(renderRegisters(tsLabel, parsed.threadState.registers));
+    out.appendChild(makeCollapsible(renderRegisters(tsLabel, parsed.threadState.registers)));
   }
 
   // External Modification Summary
   if (parsed.externalModSummary) {
-    out.appendChild(renderExternalModSection(parsed.externalModSummary));
+    out.appendChild(makeCollapsible(renderExternalModSection(parsed.externalModSummary)));
   }
 
   // VM Region Summary
   if (parsed.vmRegionSummary) {
-    out.appendChild(renderVMRegionSummarySection(parsed.vmRegionSummary));
+    out.appendChild(makeCollapsible(renderVMRegionSummarySection(parsed.vmRegionSummary)));
   }
 
   // Binary Images
   if (parsed.binaryImages.length) {
-    out.appendChild(renderBinaryImages(parsed.binaryImages));
+    out.appendChild(makeCollapsible(renderBinaryImages(parsed.binaryImages)));
   }
 
   // System Info
   if (parsed.systemInfo.length) {
-    out.appendChild(renderKVSection('System Information', parsed.systemInfo, 'kv-table'));
+    out.appendChild(makeCollapsible(renderKVSection('System Information', parsed.systemInfo, 'kv-table')));
   }
 
   out.classList.add('visible');
@@ -1977,41 +2067,13 @@ function generateMarkdown(parsed) {
 
   md += `> ${summaryLine}\n\n`;
 
-  // ── Diagnosis Table ──
-  md += '## Diagnosis\n\n';
-  md += '| Item | Details |\n|------|---------|\n';
-
+  // Signal explanation
   if (exceptionTypeKV) {
     const signalExpl = explainSignal(exceptionTypeKV.value);
-    const signalDetail = (signalExpl && signalExpl !== exceptionTypeKV.value)
-      ? `${exceptionTypeKV.value} \u2014 ${signalExpl}`
-      : exceptionTypeKV.value;
-    md += `| **Signal** | ${signalDetail} |\n`;
-  }
-
-  if (faultMdInfo.address) {
-    md += `| **Faulting Address** | ${faultMdInfo.address} \u2014 ${faultMdInfo.analysis} |\n`;
-  }
-
-  if (crashedThread && crashedThread.frames.length > 0) {
-    const frame0 = crashedThread.frames[0];
-    const ownership0 = classifyFrameOwnership(frame0.image, parsed.binaryImages, effectiveProcessPath);
-    md += `| **Crashed In** | ${frame0.image} (${ownership0.label}) at frame 0 |\n`;
-
-    for (const frame of crashedThread.frames) {
-      const ownership = classifyFrameOwnership(frame.image, parsed.binaryImages, effectiveProcessPath);
-      if (ownership.owner === 'YOUR_APP') {
-        const sym = frame.symbol === '???' ? frame.image : frame.symbol;
-        md += `| **Last User Code** | ${sym} at frame ${frame.idx} in ${frame.image} |\n`;
-        break;
-      }
+    if (signalExpl && signalExpl !== exceptionTypeKV.value) {
+      md += `> **${exceptionTypeKV.value}**: ${signalExpl}\n\n`;
     }
   }
-
-  if (uptime) md += `| **Uptime** | ${uptime} |\n`;
-  if (osVersionKV) md += `| **OS** | ${osVersionKV.value} |\n`;
-  if (hardwareKV) md += `| **Hardware** | ${hardwareKV.value} |\n`;
-  md += '\n';
 
   // ── Root Cause Trace ──
   if (crashedThread && crashedThread.frames.length > 0) {
@@ -2271,7 +2333,13 @@ function downloadMarkdown() {
 
   const processKV = window._lastParsed.header.find(kv => kv.key === 'Process');
   const processName = processKV ? processKV.value.replace(/\s*\[.*\]/, '').replace(/[^a-zA-Z0-9._-]/g, '_') : 'crash_report';
-  a.download = `${processName}_crash.md`;
+  const dateTimeKV = window._lastParsed.header.find(kv => kv.key === 'Date/Time');
+  let dateStamp = '';
+  if (dateTimeKV) {
+    const dm = dateTimeKV.value.match(/(\d{4})-(\d{2})-(\d{2})\s+(\d{2}):(\d{2}):(\d{2})/);
+    if (dm) dateStamp = `_${dm[1]}${dm[2]}${dm[3]}_${dm[4]}${dm[5]}${dm[6]}`;
+  }
+  a.download = `${processName}${dateStamp}_crash.md`;
   document.body.appendChild(a);
   a.click();
   document.body.removeChild(a);
