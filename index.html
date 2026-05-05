@@ -411,8 +411,8 @@ body {
 
 .frame {
   display: grid;
-  grid-template-columns: 3rem 1fr 11rem 1fr auto;
-  gap: 0.75rem;
+  grid-template-columns: 2.5rem minmax(6rem, 1fr) 11rem 1fr auto;
+  gap: 0.5rem 0.6rem;
   padding: 0.35rem 1rem;
   font-family: var(--font-mono);
   font-size: 0.78rem;
@@ -445,9 +445,7 @@ body {
 
 .frame-image {
   color: var(--accent-blue);
-  white-space: nowrap;
-  overflow: hidden;
-  text-overflow: ellipsis;
+  overflow-wrap: break-word;
 }
 
 .frame-addr {
@@ -456,9 +454,8 @@ body {
 
 .frame-symbol {
   color: var(--text-primary);
-  white-space: nowrap;
-  overflow: hidden;
-  text-overflow: ellipsis;
+  overflow-wrap: break-word;
+  word-break: break-all;
 }
 
 .frame.crashing .frame-symbol {
@@ -895,6 +892,7 @@ function parseCrashReport(text) {
     externalModSummary: null,
     vmRegionSummary: null,
     threadState: null,
+    systemInfo: [],
     rawSections: []
   };
 
@@ -984,6 +982,31 @@ function parseCrashReport(text) {
       continue;
     }
 
+    // System info section (Model:, Graphics:, Display:, etc.)
+    if (/^(Model|Graphics|Display|Memory Module|AirPort|Bluetooth|Network Service|USB Device|Thunderbolt Bus|Serial ATA|FireWire|SCSI|PCI|NVMe):\s/i.test(trimmed)) {
+      if (section !== 'systemInfo') {
+        flushSection(section, result, currentSectionLines, currentThread);
+        section = 'systemInfo';
+        currentSectionLines = [];
+      }
+      currentSectionLines.push(trimmed);
+      i++;
+      continue;
+    }
+
+    // Full Report separator — stop processing translated report sections
+    // Match: line of dashes, next line is exactly "Full Report", next is dashes
+    if (/^-{5,}\s*$/.test(trimmed)
+        && i + 2 < lines.length
+        && /^Full Report\s*$/i.test((lines[i + 1] || '').trim())
+        && /^-{5,}\s*$/.test((lines[i + 2] || '').trim())) {
+      flushSection(section, result, currentSectionLines, currentThread);
+      section = 'unknown';
+      currentSectionLines = [];
+      i += 3; // skip all three separator lines
+      continue;
+    }
+
     // Also detect "EOF" or empty section markers
     if (/^\s*={10,}/.test(trimmed) && section === 'threadState') {
       flushSection(section, result, currentSectionLines, currentThread);
@@ -1036,6 +1059,9 @@ function flushSection(section, result, lines, currentThread) {
       break;
     case 'vmRegionSummary':
       result.vmRegionSummary = parseVMRegionSummary(lines);
+      break;
+    case 'systemInfo':
+      result.systemInfo = parseKVLines(lines);
       break;
   }
 }
@@ -1180,7 +1206,7 @@ function parseExternalMod(lines) {
 function parseVMRegionInfo(lines) {
   if (!lines.length) return null;
   const firstLine = lines[0].trim();
-  const headerMatch = firstLine.match(/^VM Region Info:\s+(0x[0-9a-fA-F]+)\s+(.+?)(?:\s{2,}Bytes after previous region:\s*(\d+))?(?:\s{2,}Bytes before next region:\s*(\d+))?$/);
+  const headerMatch = firstLine.match(/^VM Region Info:\s+(0x[0-9a-fA-F]+)\s+(.+?)(?:\s{2,}Bytes after previous region:\s*(\d+))?(?:\s{2,}Bytes before (?:next|following) region:\s*(\d+))?$/);
   const header = {
     address: headerMatch ? headerMatch[1] : null,
     status: headerMatch ? headerMatch[2].trim() : firstLine.replace(/^VM Region Info:\s*/, ''),
@@ -1200,17 +1226,51 @@ function parseVMRegionInfo(lines) {
 
 function parseVMRegionSummary(lines) {
   if (!lines.length) return null;
-  const firstLine = lines[0].trim();
-  const summary = firstLine.replace(/^VM Region Summary:\s*/, '');
+  // Collect summary text lines (before the table header)
+  const summaryParts = [];
   const regions = [];
-  for (let i = 1; i < lines.length; i++) {
-    const trimmed = lines[i].trim();
+  let inTable = false;
+  let tableFinished = false;
+
+  for (const line of lines) {
+    const trimmed = line.trim();
     if (!trimmed) continue;
-    if (trimmed.includes('REGION TYPE') && trimmed.includes('START')) continue;
-    const r = parseRegionTableLine(trimmed);
-    if (r) regions.push(r);
+    // Skip the section header itself
+    if (/^VM Region Summary:\s*$/i.test(trimmed)) continue;
+    // Detect table header or separator — multiple checks for robustness
+    if (trimmed.includes('REGION TYPE') || trimmed.match(/^={5,}/) || /^\s*VIRTUAL\s+REGION\s*$/i.test(trimmed) || trimmed.startsWith('VIRTUAL')) {
+      inTable = true;
+      continue;
+    }
+    if (inTable) {
+      // Stop at TOTAL rows — table is finished
+      if (/^TOTAL/.test(trimmed)) {
+        const totalMatch = trimmed.match(/^TOTAL[^(]*\s+([\d.]+[KMGTPE]?)\s+(\d+)/);
+        if (totalMatch) {
+          regions.push({ isHighlighted: false, type: 'TOTAL', range: '', vsize: totalMatch[1], permissions: '', shrm: '', detail: totalMatch[2] });
+        }
+        // Everything after TOTAL is not table data
+        inTable = false;
+        tableFinished = true;
+        continue;
+      }
+      const summaryRowMatch = trimmed.match(/^(.+?)\s{2,}(\d+[\d.]*[KMGTPEB]?)\s+(\d+)/);
+      if (summaryRowMatch) {
+        regions.push({
+          isHighlighted: false,
+          type: summaryRowMatch[1].trim(),
+          range: '',
+          vsize: summaryRowMatch[2],
+          permissions: '',
+          shrm: '',
+          detail: summaryRowMatch[3]
+        });
+      }
+    } else if (!tableFinished) {
+      summaryParts.push(trimmed);
+    }
   }
-  return { summary, regions };
+  return { summary: summaryParts.join(' '), regions };
 }
 
 // ── Analysis Functions ──────────────────────
@@ -1253,6 +1313,28 @@ function analyzeFaultingAddress(subtype, binaryImages) {
   }
 
   return { address: addr, analysis: 'Outside all loaded image ranges (possible dangling pointer / use-after-free)' };
+}
+
+function getFaultingAddress(exception, binaryImages) {
+  // Try Exception Subtype first (e.g., "KERN_INVALID_ADDRESS at 0x0000000000000040")
+  const subtypeKV = exception.find(kv => kv.key === 'Exception Subtype');
+  if (subtypeKV) {
+    const addrMatch = subtypeKV.value.match(/0x[0-9a-fA-F]+/);
+    if (addrMatch) {
+      const analysis = analyzeFaultingAddress(subtypeKV.value, binaryImages);
+      return { address: addrMatch[0], analysis: analysis.analysis };
+    }
+  }
+  // Fall back to Exception Codes (e.g., "KERN_INVALID_ADDRESS at 0x0000000000000040")
+  const codesKV = exception.find(kv => kv.key === 'Exception Codes');
+  if (codesKV) {
+    const addrMatch = codesKV.value.match(/0x[0-9a-fA-F]+/);
+    if (addrMatch) {
+      const analysis = analyzeFaultingAddress(codesKV.value, binaryImages);
+      return { address: addrMatch[0], analysis: analysis.analysis };
+    }
+  }
+  return { address: null, analysis: '' };
 }
 
 function classifyFrameOwnership(imageName, binaryImages, processPath) {
@@ -1385,12 +1467,8 @@ function renderReport(parsed) {
   const crashedThread = parsed.threads.find(t => t.crashed);
 
   // Extract faulting address for VM Region Info analysis
-  const exceptionSubtypeKV = parsed.exception.find(kv => kv.key === 'Exception Subtype');
-  let faultingAddr = null;
-  if (exceptionSubtypeKV) {
-    const addrMatch = exceptionSubtypeKV.value.match(/0x[0-9a-fA-F]+/);
-    if (addrMatch) faultingAddr = addrMatch[0];
-  }
+  const faultInfo = getFaultingAddress(parsed.exception, parsed.binaryImages);
+  let faultingAddr = faultInfo.address;
 
   // Resolve process path and app image name
   const processPathKV = parsed.header.find(kv => kv.key === 'Path');
@@ -1518,13 +1596,17 @@ function renderReport(parsed) {
     out.appendChild(renderBinaryImages(parsed.binaryImages));
   }
 
+  // System Info
+  if (parsed.systemInfo.length) {
+    out.appendChild(renderKVSection('System Information', parsed.systemInfo, 'kv-table'));
+  }
+
   out.classList.add('visible');
   document.getElementById('downloadBtn').classList.remove('hidden');
 }
 
 function renderDiagnosisPanel(parsed, crashedThread, processPath) {
   const exceptionTypeKV = parsed.exception.find(kv => kv.key === 'Exception Type');
-  const exceptionSubtypeKV = parsed.exception.find(kv => kv.key === 'Exception Subtype');
 
   if (!exceptionTypeKV && !crashedThread) return null;
 
@@ -1543,12 +1625,10 @@ function renderDiagnosisPanel(parsed, crashedThread, processPath) {
   }
 
   // Faulting address analysis
-  if (exceptionSubtypeKV) {
-    const fa = analyzeFaultingAddress(exceptionSubtypeKV.value, parsed.binaryImages);
-    if (fa.address) {
-      html += `<div class="diagnosis-row"><span class="diagnosis-label">Faulting Addr:</span><span class="diagnosis-value highlight">${esc(fa.address)}</span></div>`;
-      html += `<div class="diagnosis-row"><span class="diagnosis-label"></span><span class="diagnosis-value">${esc(fa.analysis)}</span></div>`;
-    }
+  const faultInfo = getFaultingAddress(parsed.exception, parsed.binaryImages);
+  if (faultInfo.address) {
+    html += `<div class="diagnosis-row"><span class="diagnosis-label">Faulting Addr:</span><span class="diagnosis-value highlight">${esc(faultInfo.address)}</span></div>`;
+    html += `<div class="diagnosis-row"><span class="diagnosis-label"></span><span class="diagnosis-value">${esc(faultInfo.analysis)}</span></div>`;
   }
 
   // Frame ownership for crashed thread
@@ -1724,21 +1804,93 @@ function renderVMRegionInfoSection(vmRegionInfo, faultingAddress) {
   return section;
 }
 
+function parseVMSummaryText(text) {
+  // Parse lines like:
+  // "ReadOnly portion of Libraries: Total=927.4M resident=0K(0%) swapped_out_or_unallocated=927.4M(100%)"
+  // "Writable regions: Total=1.6G written=0K(0%) resident=0K(0%) swapped_out=0K(0%) unallocated=1.6G(100%)"
+  const entries = [];
+  for (const part of text.split(/\s{2,}/)) {
+    const trimmed = part.trim();
+    if (!trimmed) continue;
+    const colonIdx = trimmed.indexOf(':');
+    if (colonIdx < 0) continue;
+    const label = trimmed.substring(0, colonIdx).trim();
+    const rest = trimmed.substring(colonIdx + 1).trim();
+    const kvs = [];
+    for (const segment of rest.split(/\s+/)) {
+      const m = segment.match(/^(\w+)=([\d.]+[KMGTPEB]?)\(?([^()]*)\)?$/);
+      if (m) {
+        kvs.push({ key: m[1], value: m[2], percent: m[3] || '' });
+      }
+    }
+    entries.push({ label, kvs });
+  }
+  return entries;
+}
+
 function renderVMRegionSummarySection(vmRegionSummary) {
   const section = document.createElement('div');
   section.className = 'section';
   section.innerHTML = '<div class="section-title">VM Region Summary</div>';
   if (!vmRegionSummary) return section;
+
+  // Render summary as structured table
   if (vmRegionSummary.summary) {
-    const note = document.createElement('div');
-    note.className = 'analysis-note';
-    note.innerHTML = esc(vmRegionSummary.summary);
-    section.appendChild(note);
+    const parsed = parseVMSummaryText(vmRegionSummary.summary);
+    if (parsed.length > 0) {
+      const table = document.createElement('table');
+      table.className = 'kv-table';
+      for (const entry of parsed) {
+        const valParts = entry.kvs.map(kv => {
+          let s = `<strong>${esc(kv.key)}</strong>: ${esc(kv.value)}`;
+          if (kv.percent) s += ` <span style="color:var(--text-muted)">(${esc(kv.percent)})</span>`;
+          return s;
+        });
+        const tr = document.createElement('tr');
+        tr.innerHTML = `<td class="kv-key" style="width:220px">${esc(entry.label)}</td><td class="kv-val">${valParts.join(' &middot; ')}</td>`;
+        table.appendChild(tr);
+      }
+      section.appendChild(table);
+    } else {
+      // Fallback for unrecognized format
+      const note = document.createElement('div');
+      note.className = 'analysis-note';
+      note.innerHTML = esc(vmRegionSummary.summary);
+      section.appendChild(note);
+    }
   }
+
+  // Render region table (SIZE / COUNT format — no range/permissions)
   if (vmRegionSummary.regions.length > 0) {
-    section.appendChild(renderCollapsibleRegionTable(vmRegionSummary.regions, `${vmRegionSummary.regions.length} regions`));
+    section.appendChild(renderCollapsibleVMSummaryTable(vmRegionSummary.regions));
   }
   return section;
+}
+
+function renderCollapsibleVMSummaryTable(regions) {
+  const wrapper = document.createElement('div');
+  wrapper.className = 'collapsible-section';
+  const header = document.createElement('div');
+  header.className = 'collapsible-header';
+  header.innerHTML = `${CHEVRON_SVG}<span>${regions.length} region types</span>`;
+  header.onclick = () => wrapper.classList.toggle('open');
+  const body = document.createElement('div');
+  body.className = 'collapsible-body';
+  const table = document.createElement('table');
+  table.className = 'region-table';
+  table.innerHTML = '<thead><tr><th>Region Type</th><th>Virtual Size</th><th>Count</th></tr></thead>';
+  const tbody = document.createElement('tbody');
+  for (const region of regions) {
+    const tr = document.createElement('tr');
+    if (region.type === 'TOTAL') tr.style.fontWeight = '700';
+    tr.innerHTML = `<td class="region-type">${esc(region.type)}</td><td class="region-vsize">${esc(region.vsize)}</td><td style="text-align:right">${esc(region.detail)}</td>`;
+    tbody.appendChild(tr);
+  }
+  table.appendChild(tbody);
+  body.appendChild(table);
+  wrapper.appendChild(header);
+  wrapper.appendChild(body);
+  return wrapper;
 }
 
 function renderCollapsibleRegionTable(regions, label) {
@@ -1779,8 +1931,8 @@ function generateMarkdown(parsed) {
   const processName = processKV ? processKV.value : 'Unknown';
 
   const exceptionTypeKV = parsed.exception.find(kv => kv.key === 'Exception Type');
-  const exceptionSubtypeKV = parsed.exception.find(kv => kv.key === 'Exception Subtype');
   const crashedThread = parsed.threads.find(t => t.crashed);
+  const triggeredThreadKV = parsed.exception.find(kv => kv.key === 'Triggered by Thread');
 
   // Resolve process path and app image
   const processPathKV = parsed.header.find(kv => kv.key === 'Path');
@@ -1801,45 +1953,64 @@ function generateMarkdown(parsed) {
   const osVersionKV = parsed.header.find(kv => kv.key === 'OS Version');
   const hardwareKV = parsed.header.find(kv => kv.key === 'Hardware Model');
 
-  md += `# Crash Report Analysis: ${processName}\n\n`;
+  md += `# Crash Report: ${processName}\n\n`;
 
-  // ── Diagnosis ──
+  // ── Executive Summary ──
+  const faultMdInfo = getFaultingAddress(parsed.exception, parsed.binaryImages);
+  const crashedFunc = (crashedThread && crashedThread.frames.length > 0)
+    ? (crashedThread.frames[0].symbol === '???' ? crashedThread.frames[0].image : crashedThread.frames[0].symbol)
+    : null;
+  const osVersion = osVersionKV ? osVersionKV.value : '';
+  const hardware = hardwareKV ? hardwareKV.value : '';
+  const threadNum = triggeredThreadKV ? triggeredThreadKV.value : (crashedThread ? String(crashedThread.id) : '?');
+  const exceptionTypeStr = exceptionTypeKV ? exceptionTypeKV.value : 'Unknown';
+
+  let summaryLine = `**${exceptionTypeStr}**`;
+  if (crashedFunc) summaryLine += ` in \`${crashedFunc}\``;
+  if (faultMdInfo.address) summaryLine += ` at \`${faultMdInfo.address}\``;
+  if (faultMdInfo.analysis) summaryLine += ` (${faultMdInfo.analysis})`;
+  summaryLine += `. Thread ${threadNum} crashed`;
+  if (osVersion) summaryLine += ` on ${osVersion}`;
+  if (hardware) summaryLine += ` (${hardware})`;
+  if (uptime) summaryLine += `. Process ran for ${uptime.replace(/^Process crashed /, '').replace(/ before crash$/, '')}`;
+  summaryLine += '.';
+
+  md += `> ${summaryLine}\n\n`;
+
+  // ── Diagnosis Table ──
   md += '## Diagnosis\n\n';
+  md += '| Item | Details |\n|------|---------|\n';
 
   if (exceptionTypeKV) {
     const signalExpl = explainSignal(exceptionTypeKV.value);
-    md += `**Signal**: ${exceptionTypeKV.value}`;
-    if (signalExpl && signalExpl !== exceptionTypeKV.value) {
-      md += ` \u2014 ${signalExpl}`;
-    }
-    md += '\n';
+    const signalDetail = (signalExpl && signalExpl !== exceptionTypeKV.value)
+      ? `${exceptionTypeKV.value} \u2014 ${signalExpl}`
+      : exceptionTypeKV.value;
+    md += `| **Signal** | ${signalDetail} |\n`;
   }
 
-  if (exceptionSubtypeKV) {
-    const fa = analyzeFaultingAddress(exceptionSubtypeKV.value, parsed.binaryImages);
-    if (fa.address) {
-      md += `**Faulting Address**: ${fa.address} \u2014 ${fa.analysis}\n`;
-    }
+  if (faultMdInfo.address) {
+    md += `| **Faulting Address** | ${faultMdInfo.address} \u2014 ${faultMdInfo.analysis} |\n`;
   }
 
   if (crashedThread && crashedThread.frames.length > 0) {
     const frame0 = crashedThread.frames[0];
     const ownership0 = classifyFrameOwnership(frame0.image, parsed.binaryImages, effectiveProcessPath);
-    md += `**Crashed In**: ${frame0.image} (${ownership0.label}) at frame 0\n`;
+    md += `| **Crashed In** | ${frame0.image} (${ownership0.label}) at frame 0 |\n`;
 
     for (const frame of crashedThread.frames) {
       const ownership = classifyFrameOwnership(frame.image, parsed.binaryImages, effectiveProcessPath);
       if (ownership.owner === 'YOUR_APP') {
         const sym = frame.symbol === '???' ? frame.image : frame.symbol;
-        md += `**Last user code**: ${sym} at frame ${frame.idx} in ${frame.image}\n`;
+        md += `| **Last User Code** | ${sym} at frame ${frame.idx} in ${frame.image} |\n`;
         break;
       }
     }
   }
 
-  if (osVersionKV) md += `**OS**: ${osVersionKV.value}\n`;
-  if (hardwareKV) md += `**Hardware**: ${hardwareKV.value}\n`;
-  if (uptime) md += `**Uptime**: ${uptime}\n`;
+  if (uptime) md += `| **Uptime** | ${uptime} |\n`;
+  if (osVersionKV) md += `| **OS** | ${osVersionKV.value} |\n`;
+  if (hardwareKV) md += `| **Hardware** | ${hardwareKV.value} |\n`;
   md += '\n';
 
   // ── Root Cause Trace ──
@@ -1876,11 +2047,10 @@ function generateMarkdown(parsed) {
       md += '**Analysis**: ';
       if (ownership0.owner !== 'YOUR_APP') {
         md += `The crash originated in \`${userFrame.symbol}\` which called into ${frame0.image}.`;
-        if (exceptionSubtypeKV) {
-          const fa = analyzeFaultingAddress(exceptionSubtypeKV.value, parsed.binaryImages);
-          if (fa.address && fa.analysis.includes('NULL')) {
+        if (faultMdInfo.address) {
+          if (faultMdInfo.analysis.includes('NULL')) {
             md += ' A NULL or invalid pointer was likely passed to the system call.';
-          } else if (fa.address && (fa.analysis.includes('dangling') || fa.analysis.includes('Outside'))) {
+          } else if (faultMdInfo.analysis.includes('dangling') || faultMdInfo.analysis.includes('Outside')) {
             md += ' The invalid address suggests a corrupted or freed buffer was passed to the system operation.';
           }
         }
@@ -2026,16 +2196,39 @@ function generateMarkdown(parsed) {
   if (parsed.vmRegionSummary) {
     md += '## VM Region Summary\n\n';
     if (parsed.vmRegionSummary.summary) {
-      md += `> ${parsed.vmRegionSummary.summary}\n\n`;
+      const parsed2 = parseVMSummaryText(parsed.vmRegionSummary.summary);
+      if (parsed2.length > 0) {
+        md += '| Category | Details |\n|----------|--------|\n';
+        for (const entry of parsed2) {
+          const val = entry.kvs.map(kv => {
+            let s = `**${kv.key}**: ${kv.value}`;
+            if (kv.percent) s += ` (${kv.percent})`;
+            return s;
+          }).join(' · ');
+          md += `| ${entry.label} | ${val} |\n`;
+        }
+        md += '\n';
+      } else {
+        md += `> ${parsed.vmRegionSummary.summary}\n\n`;
+      }
     }
     if (parsed.vmRegionSummary.regions.length > 0) {
-      md += '| Type | Range | Size | Perms | Detail |\n|------|-------|------|-------|--------|\n';
+      md += '| Region Type | Size | Count |\n|-------------|------|-------|\n';
       for (const r of parsed.vmRegionSummary.regions) {
-        const prefix = r.isHighlighted ? '\u2192 ' : '';
-        md += `| ${prefix}${r.type} | ${r.range} | ${r.vsize} | ${r.permissions} | ${r.detail} |\n`;
+        md += `| ${r.type} | ${r.vsize} | ${r.detail} |\n`;
       }
       md += '\n';
     }
+  }
+
+  // ── System Information ──
+  if (parsed.systemInfo.length) {
+    md += '## System Information\n\n';
+    md += '| Component | Details |\n|-----------|--------|\n';
+    for (const kv of parsed.systemInfo) {
+      md += `| **${kv.key}** | ${kv.value} |\n`;
+    }
+    md += '\n';
   }
 
   return md;
