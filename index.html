@@ -2044,8 +2044,26 @@ function generateMarkdown(parsed) {
 
   md += `# Crash Report: ${processName}\n\n`;
 
-  // ── Diagnosis Table ──
+  // ── Summary ──
   const faultMdInfo = getFaultingAddress(parsed.exception, parsed.binaryImages);
+  const crashedFunc = (crashedThread && crashedThread.frames.length > 0)
+    ? (crashedThread.frames[0].symbol === '???' ? crashedThread.frames[0].image : crashedThread.frames[0].symbol)
+    : null;
+  const exceptionTypeStr = exceptionTypeKV ? exceptionTypeKV.value : 'Unknown';
+  const threadNum = triggeredThreadKV ? triggeredThreadKV.value : (crashedThread ? String(crashedThread.id) : '?');
+
+  let summary = `${exceptionTypeStr}`;
+  if (crashedFunc) summary += ` in \`${crashedFunc}\``;
+  if (faultMdInfo.address) summary += ` at \`${faultMdInfo.address}\``;
+  if (faultMdInfo.analysis) summary += ` (${faultMdInfo.analysis})`;
+  summary += `. Thread ${threadNum} crashed`;
+  if (osVersionKV) summary += ` on ${osVersionKV.value}`;
+  if (hardwareKV) summary += ` (${hardwareKV.value})`;
+  if (uptime) summary += `. ${uptime}`;
+  summary += '.';
+  md += `${summary}\n\n`;
+
+  // ── Diagnosis Table ──
   md += '## Diagnosis\n\n';
   md += '| Item | Details |\n|------|---------|\n';
 
